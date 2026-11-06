@@ -1,13 +1,14 @@
 """Scan source photos and write gallery/data/catalog.json (run before assets.py)."""
 import hashlib
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageOps
 
-SRC = Path(r"C:\Users\Mr\Downloads\sorted_photos\sorted")
+SRC = Path(os.environ.get("RKMV_SOURCE", r"C:\Users\Mr\Downloads\sorted_photos\sorted"))
 GALLERY = Path(__file__).resolve().parent.parent
 OUT = GALLERY / "data" / "catalog.json"
 GPS_IFD_TAG = 0x8825

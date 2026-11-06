@@ -5,8 +5,13 @@
   "3": "el",
   "4": "mount",
   "5": "review_server.py",
-  "6": "lightbox.js",
-  "7": "mount",
+  "6": "api.test.mjs",
+  "7": "tests/package.json",
   "8": "RKMV Gallery: design system",
-  "9": "deploy_cloudflare.ps1"
+  "9": "deploy_cloudflare.ps1",
+  "10": "js/auth.js",
+  "11": "functions/package.json",
+  "12": "README.md",
+  "13": "ingest_facebook.ps1",
+  "14": "util.js"
 }

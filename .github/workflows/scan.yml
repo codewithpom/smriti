@@ -1,0 +1,104 @@
+name: scan
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"   # weekly, Mondays 03:17 UTC
+
+permissions:
+  contents: read
+
+# One run at a time: a second trigger waits instead of racing on R2 data/.
+concurrency:
+  group: scan-pipeline
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+      RCLONE_CONFIG_R2_REGION: auto
+      RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      RKMV_SOURCE: ${{ github.workspace }}/sorted
+      RKMV_PEOPLE: ${{ github.workspace }}/hello/data
+      INBOX_LIST: ${{ runner.temp }}/inbox-files.txt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: gallery/pipeline/requirements-scan.txt
+
+      - name: Cache insightface models
+        uses: actions/cache@v4
+        with:
+          path: ~/.insightface
+          key: insightface-${{ hashFiles('gallery/pipeline/requirements-scan.txt') }}
+
+      - name: Install rclone
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+
+      - name: Install Python dependencies
+        run: python -m pip install -r gallery/pipeline/requirements-scan.txt
+
+      - name: Pull pipeline state from R2
+        # Caches so a rerun does not re-embed every photo. copy never deletes.
+        run: |
+          mkdir -p gallery/data
+          rclone copy "r2:${R2_BUCKET}/state" gallery/data \
+            --include corrections.json --include face_emb.npy --include ref_emb.npy \
+            --include ref_ids.json --include ref_failed.json --include "fx/**" \
+            --log-level ERROR
+
+      - name: Download new photos from R2 inbox
+        run: |
+          set -euo pipefail
+          # Record exactly what we download so only these objects are deleted later.
+          rclone lsf "r2:${R2_BUCKET}/inbox" --files-only -R > "$INBOX_LIST"
+          if [ -s "$INBOX_LIST" ]; then
+            rclone copy "r2:${R2_BUCKET}/inbox" sorted --files-from "$INBOX_LIST" --transfers 8 --log-level ERROR
+          fi
+
+      - name: Catalog, assets, faces, build
+        run: |
+          set -euo pipefail
+          python -I gallery/pipeline/catalog.py
+          # Not -I: assets.py imports catalog, and -I drops the script directory from sys.path.
+          python gallery/pipeline/assets.py
+          python -I gallery/pipeline/faces.py extract
+          python -I gallery/pipeline/faces.py match
+          python -I gallery/pipeline/build.py
+
+      - name: Upload data JSON to R2
+        # Allowlist only: never embeddings (.npy), photos or other intermediate files.
+        run: |
+          rclone copy gallery/data "r2:${R2_BUCKET}/data" \
+            --include photos.json --include people.json --include graph.json \
+            --include questions.json --include clusters.json \
+            --log-level ERROR
+
+      - name: Push pipeline state to R2
+        if: ${{ !cancelled() }}
+        run: |
+          rclone copy gallery/data "r2:${R2_BUCKET}/state" \
+            --include corrections.json --include face_emb.npy --include ref_emb.npy \
+            --include ref_ids.json --include ref_failed.json --include "fx/**" \
+            --log-level ERROR
+
+      - name: Delete processed inbox objects
+        if: ${{ success() }}
+        run: |
+          set -euo pipefail
+          if [ -s "$INBOX_LIST" ]; then
+            rclone delete "r2:${R2_BUCKET}/inbox" --files-from "$INBOX_LIST" --log-level ERROR
+          fi

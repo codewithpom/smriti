@@ -8,6 +8,7 @@ Names come only from D:\\hello (portraits + name/reg/section). Nothing else from
 import argparse
 import gc
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -16,8 +17,8 @@ from PIL import Image, ImageOps
 
 GALLERY = Path(__file__).resolve().parent.parent
 DATA = GALLERY / "data"
-SRC = Path(r"C:\Users\Mr\Downloads\sorted_photos\sorted")
-HELLO = Path(r"D:\hello\data")
+SRC = Path(os.environ.get("RKMV_SOURCE", r"C:\Users\Mr\Downloads\sorted_photos\sorted"))
+HELLO = Path(os.environ.get("RKMV_PEOPLE", r"D:\hello\data"))
 
 MAX_SIDE = 2560          # detection resolution cap; small faces in group shots need pixels
 MIN_DET = 0.60           # detector confidence floor

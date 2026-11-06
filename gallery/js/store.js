@@ -1,4 +1,8 @@
 // Shared data store: fetches the JSON once, builds lookups, notifies listeners (open-question count).
+import { getToken } from './auth.js';
+import { loadMyVotes, loadProgress } from './votes.js';
+import { API } from './config.js';
+
 export const store = {
   photos: [], people: [], graph: { nodes: [], edges: [] }, questions: [],
   byId: new Map(), peopleById: new Map(),
@@ -10,9 +14,16 @@ const subs = new Set();
 export const onChange = (fn) => { subs.add(fn); return () => subs.delete(fn); };
 export const emit = () => subs.forEach((f) => f());
 
+const REVIEW = location.hostname === '127.0.0.1'; // local review server: static data/ files, no sign-in
+
+// Signed in: GET /api/data/<name> with the bearer token. Review server: data/<name>.json.
 async function get(name, required) {
   try {
-    const r = await fetch(`data/${name}.json`, { cache: 'no-cache' });
+    const token = REVIEW ? null : await getToken();
+    if (!token && !REVIEW) throw new Error('Sign in to load the gallery.');
+    const r = await fetch(token ? `${API}/data/${name}` : `data/${name}.json`, {
+      cache: 'no-cache', headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
     if (!r.ok) throw new Error(`${name}: ${r.status}`);
     return await r.json();
   } catch (e) {
@@ -53,7 +64,16 @@ async function doLoad() {
   const [photos, people, graph, questions] = await Promise.all([
     get('photos', true), get('people', true), get('graph', false), get('questions', false),
   ]);
-  Object.assign(store, { photos, people, graph: graph || { nodes: [], edges: [] }, questions: questions || [] });
+  let open = questions || [];
+  if (!REVIEW && await getToken()) {
+    // Hide questions this student already answered or that are settled (own votes + one progress read).
+    const [mine, progress] = await Promise.all([
+      loadMyVotes().catch(() => ({})), loadProgress().catch(() => ({})),
+    ]);
+    const settled = (progress && progress.settled) || {};
+    open = open.filter((q) => !mine[q.id] && !settled[q.id]);
+  }
+  Object.assign(store, { photos, people, graph: graph || { nodes: [], edges: [] }, questions: open });
   index();
   emit();
   return store;

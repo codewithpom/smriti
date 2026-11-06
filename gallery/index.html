@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RKMV Gallery</title>
 <meta name="description" content="Private photo archive.">
-<script>try{var t=localStorage.getItem('rkmv.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600&family=Noto+Serif+Bengali:wght@400;500&display=swap">
@@ -55,9 +54,18 @@
         Review
         <span class="count pill" data-count hidden><span data-count-n></span><span class="sr-only"> open questions</span></span>
       </a>
+      <a href="#/upload" data-route="upload" data-role="member" hidden>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 11V3M5 6l3-3 3 3"/><path d="M3 11v2h10v-2"/></svg>
+        Upload
+      </a>
+      <a href="#/admin" data-route="admin" data-role="admin" hidden>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/></svg>
+        Admin
+      </a>
     </nav>
     <div class="side-foot" id="side-foot">
       <button type="button" class="btn btn-quiet" data-theme-toggle>Theme: <span data-theme-label>System</span></button>
+      <button type="button" class="btn btn-quiet" data-sign-out hidden>Sign out</button>
     </div>
   </aside>
   <main class="main" id="view" tabindex="-1"><p class="muted">Loading...</p></main>

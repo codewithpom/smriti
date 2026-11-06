@@ -1,0 +1,17 @@
+﻿.admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.admin-tabs [role="tab"] { min-height: var(--hit); }
+.admin-tabs [aria-selected="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.admin-panel { display: grid; gap: 12px; max-width: 800px; }
+.admin-list { border-top: 1px solid var(--rule); }
+.admin-list > li, .admin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--rule); }
+.admin-main { display: grid; gap: 3px; min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
+.admin-row .input { flex: 1 1 160px; }
+.admin-preview { width: 64px; height: 64px; object-fit: cover; border-radius: var(--radius-control); background: var(--raised); }
+.admin-status, .upload-status { min-height: 1.5em; }
+.upload-form { display: grid; justify-items: start; gap: 16px; max-width: 520px; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.upload-form label { display: grid; gap: 8px; }
+.upload-form input[type="file"] { max-width: 100%; }
+@media (max-width: 520px) {
+  .admin-list > li, .admin-row { align-items: flex-start; }
+  .admin-list .admin-main, .admin-row .admin-main { flex-basis: 100%; }
+}

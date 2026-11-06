@@ -1,0 +1,12 @@
+name = "student-photo-gallery"
+compatibility_date = "2026-11-06"
+pages_build_output_dir = "dist"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "REPLACE_WITH_R2_BUCKET"
+
+[vars]
+FIREBASE_PROJECT_ID = "REPLACE_WITH_FIREBASE_PROJECT_ID"
+# ADMIN_EMAILS is NOT set here (this file is public in the repo). Set it as a secret:
+#   npx wrangler pages secret put ADMIN_EMAILS --project-name <project>

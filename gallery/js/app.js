@@ -1,6 +1,7 @@
-// Hash router, shell wiring (theme, menu, nav state, open-question count).
+// Hash router, shell wiring (theme, menu, nav state, open-question count, sign-in gate).
 import { store, load, onChange } from './store.js';
 import { el, ls } from './util.js';
+import { onUser, signIn, signOut, currentProfile, isAdmin } from './auth.js';
 import * as lightbox from './views/lightbox.js';
 import * as gallery from './views/gallery.js';
 import * as people from './views/people.js';
@@ -11,7 +12,10 @@ import * as review from './views/review.js';
 
 const SITE = 'RKMV Gallery';
 const views = { gallery, people, person, friends, places, review };
+// Loaded on first visit, so the public pages do not download the admin and upload code.
+const lazyViews = { admin: () => import('./views/admin.js'), upload: () => import('./views/upload.js') };
 const navFor = { person: 'people' };
+const REVIEW = location.hostname === '127.0.0.1'; // local review server: no sign-in gate
 const view = document.getElementById('view');
 const $ = (s) => document.querySelector(s);
 
@@ -46,10 +50,10 @@ function setNav(name) {
   });
 }
 
-function mountView(name) {
+function mountView(name, mod = views[name]) {
   current?.inst?.unmount?.();
   view.replaceChildren();
-  const inst = views[name].mount(view, ctx) || {};
+  const inst = mod.mount(view, ctx) || {};
   current = { name, inst, hash: location.hash || '#/' };
   document.title = `${inst.title || name} - ${SITE}`;
   $('#topbar-title').textContent = inst.title || SITE;
@@ -66,7 +70,81 @@ function showError(e) {
     el('p', { class: 'muted small', text: String(e && e.message || e) }));
 }
 
+// A screen that is not a mounted view (sign-in, waiting, denied). Clears `current` so the next route remounts.
+function renderScreen(title, ...kids) {
+  current?.inst?.unmount?.();
+  current = null;
+  view.replaceChildren(el('h1', { text: title, tabindex: '-1' }), ...kids);
+  document.title = `${title} - ${SITE}`;
+  $('#topbar-title').textContent = SITE;
+  setNav('');
+  view.querySelector('h1').focus({ preventScroll: true });
+}
+
+// ---- access gate: signed out -> sign-in, pending/blocked/invalid -> message, ok -> the app
+let access = null; // cached check, cleared on every sign-in/out and on "Check again"
+function firstUser() {
+  return new Promise((resolve) => { const off = onUser((u) => { off(); resolve(u); }); });
+}
+async function computeAccess() {
+  try {
+    const user = await firstUser();
+    if (!user) return { state: 'signed-out' };
+    const p = await currentProfile();
+    if (!p) return { state: 'invalid' };
+    if (p.status !== 'approved') return { state: p.status === 'blocked' ? 'blocked' : 'pending' };
+    return { state: 'ok', admin: await isAdmin() };
+  } catch (error) {
+    return { state: 'error', error };
+  }
+}
+function checkAccess() {
+  if (REVIEW) return Promise.resolve({ state: 'ok', admin: false });
+  if (!access) {
+    access = computeAccess().then((a) => { if (a.state === 'error') access = null; return a; });
+  }
+  return access;
+}
+
+// Nav links and sign-out button follow the access state (elements are cloned for the menu, so match all).
+function setRoles(acc) {
+  document.querySelectorAll('[data-role="member"]').forEach((e) => { e.hidden = acc.state !== 'ok'; });
+  document.querySelectorAll('[data-role="admin"]').forEach((e) => { e.hidden = !acc.admin; });
+  document.querySelectorAll('[data-sign-out]').forEach((e) => { e.hidden = acc.state === 'signed-out'; });
+}
+
+function showGate(acc) {
+  const back = () => { access = null; route(); };
+  const out = el('button', { type: 'button', class: 'btn', onclick: () => signOut() }, 'Sign out');
+  if (acc.state === 'signed-out') {
+    const msg = el('p', { class: 'rv-msg small', role: 'status' });
+    renderScreen('Sign in to see the gallery',
+      el('p', { class: 'muted', text: 'Sign in with the Google account that matches your registration number. Only rkmv<registration number>@gmail.com accounts can sign in.' }),
+      el('div', { class: 'rv-actions' }, el('button', { type: 'button', class: 'btn btn-primary', onclick: () => signIn().catch(() => { msg.textContent = 'Sign-in did not finish. Try again.'; }) }, 'Sign in with Google')),
+      msg);
+  } else if (acc.state === 'pending') {
+    renderScreen('Waiting for approval',
+      el('p', { class: 'muted', text: 'Your account is registered. An admin still needs to approve it before you can see the gallery. Check again later.' }),
+      el('div', { class: 'rv-actions' }, el('button', { type: 'button', class: 'btn btn-primary', onclick: back }, 'Check again'), out));
+  } else if (acc.state === 'blocked') {
+    renderScreen('Access is blocked',
+      el('p', { class: 'muted', text: 'This account cannot see the gallery. Ask an admin if you think this is a mistake.' }),
+      el('div', { class: 'rv-actions' }, out));
+  } else if (acc.state === 'invalid') {
+    renderScreen('This account cannot sign in',
+      el('p', { class: 'muted', text: 'Only rkmv<registration number>@gmail.com accounts on the class roster can sign in. Sign out and use the right account.' }),
+      el('div', { class: 'rv-actions' }, out));
+  } else {
+    renderScreen('Could not check your access',
+      el('p', { class: 'muted', text: 'The sign-in check failed. Check your connection and try again.' }),
+      el('div', { class: 'rv-actions' }, el('button', { type: 'button', class: 'btn btn-primary', onclick: back }, 'Try again'), out));
+  }
+}
+
 async function route() {
+  const acc = await checkAccess();
+  setRoles(acc);
+  if (acc.state !== 'ok') { showGate(acc); return; }
   try { await load(); } catch (e) { showError(e); return; }
   const { parts, query } = parse();
   Object.assign(ctx, { parts, query });
@@ -82,7 +160,8 @@ async function route() {
   const wasOpen = lightbox.isOpen();
   if (wasOpen) lightbox.close();
   fromBase = false;
-  const key = name in views ? name : 'gallery';
+  const key = name in views || name in lazyViews ? name : 'gallery';
+  if (key === 'admin' && !acc.admin) { renderScreen('Admins only', el('p', { class: 'muted', text: 'Only admins can open this page.' })); return; }
   if (current && current.name === key && current.hash === location.hash) {
     // Back from the lightbox to the same base view: nothing to remount.
     document.title = `${current.inst.title || key} - ${SITE}`;
@@ -95,7 +174,9 @@ async function route() {
     document.title = `Gallery - ${SITE}`;
     return;
   }
-  mountView(key);
+  let mod;
+  try { mod = views[key] || await lazyViews[key](); } catch (e) { showError(e); return; }
+  mountView(key, mod);
 }
 
 // ---- open-question count
@@ -129,6 +210,7 @@ function init() {
   $('#menu-close').addEventListener('click', () => { closeMenu(); menuBtn.focus(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !menu.hidden) { closeMenu(); menuBtn.focus(); } });
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-sign-out]')) { signOut(); return; }
     if (!e.target.closest('[data-theme-toggle]')) return;
     theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
     ls.set('rkmv.theme', theme);
@@ -138,6 +220,8 @@ function init() {
   applyTheme(theme);
   onChange(showCount);
   window.addEventListener('hashchange', route);
-  route().then(showCount);
+  if (REVIEW) { route().then(showCount); return; }
+  // Fires once on load and again on every sign-in or sign-out.
+  onUser(() => { access = null; route().then(showCount); });
 }
 init();

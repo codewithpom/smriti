@@ -10,6 +10,10 @@
 *.key
 service-account*.json
 
+# --- Facebook ingest: browser cookies and downloaded school photos ---
+gallery/pipeline/.secrets/
+gallery/pipeline/ingest/
+
 # --- Generated / local tooling ---
 __pycache__/
 *.pyc

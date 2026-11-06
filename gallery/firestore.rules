@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function admin() {
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email in ['codewithpom@gmail.com'];
+    }
+    function validStudent() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.matches('^rkmv[0-9]+@gmail\\.com$');
+    }
+    function regno() { return request.auth.token.email.split('@')[0].split('rkmv')[1]; }
+    function rosterExists(r) {
+      return exists(/databases/$(database)/documents/roster/$(r));
+    }
+    function approved() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'approved';
+    }
+
+    match /roster/{r} {
+      allow read: if admin() || (validStudent() && r == regno());
+      allow write: if false;
+    }
+    match /users/{uid} {
+      allow create: if validStudent() && uid == request.auth.uid
+        && rosterExists(regno())
+        && request.resource.data.keys().hasOnly(['email', 'regno', 'pid', 'status', 'createdAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.regno == regno()
+        && request.resource.data.pid == get(/databases/$(database)/documents/roster/$(regno())).data.pid
+        && request.resource.data.status == 'pending';
+      allow read: if admin() || (signedIn() && uid == request.auth.uid);
+      allow update: if admin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['approved', 'blocked'];
+      allow delete: if false;
+    }
+    match /votes/{voteId} {
+      allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['qid', 'qtype', 'uid', 'regno', 'answer', 'ts'])
+        && request.resource.data.uid == request.auth.uid
+        && ((request.resource.data.qtype == 'face' && request.resource.data.qid.matches('^f[A-Za-z0-9:_.-]{1,40}$'))
+          || (request.resource.data.qtype == 'cluster' && request.resource.data.qid.matches('^c[0-9]{1,6}$'))
+          || (request.resource.data.qtype == 'scene' && request.resource.data.qid.matches('^s[A-Za-z0-9_.-]{1,40}$')))
+        && approved()
+        && voteId == request.resource.data.qid + '__' + request.auth.uid
+        && request.resource.data.regno == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.regno
+        && request.resource.data.answer is string
+        && request.resource.data.answer.size() > 0
+        && request.resource.data.answer.size() <= 64
+        && request.resource.data.ts == request.time;
+      allow delete: if signedIn() && approved() && resource.data.uid == request.auth.uid;
+    }
+    match /meta/progress {
+      allow read: if admin() || approved();
+      allow write: if admin();
+    }
+    match /overrides/{qid} {
+      allow read: if admin();
+      allow create, update: if admin()
+        && request.resource.data.keys().hasOnly(['qid', 'answer', 'adminEmail', 'ts'])
+        && request.resource.data.qid == qid
+        && request.resource.data.answer is string
+        && request.resource.data.answer.size() > 0
+        && request.resource.data.answer.size() <= 64
+        && request.resource.data.adminEmail == request.auth.token.email;
+      allow delete: if admin();
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
