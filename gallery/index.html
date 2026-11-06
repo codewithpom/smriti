@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RKMV Gallery</title>
+<meta name="description" content="Private photo archive.">
+<script>try{var t=localStorage.getItem('rkmv.theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600&family=Noto+Serif+Bengali:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+<a class="skip" href="#view">Skip to content</a>
+
+<header class="topbar">
+  <b id="topbar-title">Gallery</b>
+  <button type="button" class="btn" id="menu-btn" aria-expanded="false" aria-controls="menu">Menu</button>
+</header>
+
+<div class="menu-sheet" id="menu" hidden role="dialog" aria-label="Menu">
+  <div class="menu-head">
+    <div class="brand"><b>RKMV Gallery</b><span>Photo archive</span></div>
+    <button type="button" class="btn" id="menu-close">Close</button>
+  </div>
+  <nav class="nav" id="menu-nav" aria-label="Main"></nav>
+  <div class="side-foot" id="menu-foot"></div>
+</div>
+
+<div class="shell">
+  <aside class="side">
+    <div class="brand"><b>RKMV Gallery</b><span>Photo archive</span></div>
+    <nav class="nav" id="nav" aria-label="Main">
+      <a href="#/" data-route="gallery">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="7" r="1"/><path d="M2.5 12l3.5-3 3 2.5 2-1.5 2.5 2"/></svg>
+        Gallery
+      </a>
+      <a href="#/people" data-route="people">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>
+        People
+      </a>
+      <a href="#/friends" data-route="friends">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="8" r="1.8"/><circle cx="12" cy="4" r="1.8"/><circle cx="12" cy="12" r="1.8"/><path d="M5.7 7.2l4.6-2.4M5.7 8.8l4.6 2.4"/></svg>
+        Friends
+      </a>
+      <a href="#/places" data-route="places">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14s4.5-3.8 4.5-7.5a4.5 4.5 0 10-9 0C3.5 10.2 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.5"/></svg>
+        Places
+      </a>
+      <a href="#/review" data-route="review">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M5.5 8.2l1.8 1.8 3.2-3.6"/></svg>
+        Review
+        <span class="count pill" data-count hidden><span data-count-n></span><span class="sr-only"> open questions</span></span>
+      </a>
+    </nav>
+    <div class="side-foot" id="side-foot">
+      <button type="button" class="btn btn-quiet" data-theme-toggle>Theme: <span data-theme-label>System</span></button>
+    </div>
+  </aside>
+  <main class="main" id="view" tabindex="-1"><p class="muted">Loading...</p></main>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

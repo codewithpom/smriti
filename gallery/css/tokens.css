@@ -1,0 +1,87 @@
+/* RKMV Gallery tokens. Flat surfaces, no shadows at rest, no gradients.
+   One accent (blazer maroon): full strength on small marks, pale tints on areas. */
+:root {
+  color-scheme: light dark;
+
+  --ground: #f7f6f4;
+  --surface: #ffffff;
+  --raised: #efeeeb;
+  --border: #e3e1dd;
+  --rule: #eceae6;
+  --control: #cfccc6;
+  --text: #17181a;
+  --muted: #5c606a;
+
+  --accent: #9b1c31;
+  --accent-soft: #fbf1f2;
+  --accent-track: #f1d3d8;
+  --accent-ink: #5c0f1d;
+  --on-accent: #ffffff;
+
+  --positive: #247b50;
+  --negative: #c4242a;
+  --warning: #92400e;
+  --pill-positive-bg: #dcfce7; --pill-positive-ink: #14532d;
+  --pill-negative-bg: #ffedea; --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fffbeb;  --pill-warning-ink: #92400e;
+  --pill-neutral-bg: #efeeeb;  --pill-neutral-ink: #3b3e45;
+  --pill-accent-bg: var(--accent-soft); --pill-accent-ink: var(--accent-ink);
+
+  /* graph: community colours, one hue family each, all readable on --surface */
+  --c1: #9b1c31; --c2: #1f5f8b; --c3: #2f7d4f; --c4: #8a5a00; --c5: #5b4b8a; --c6: #0f766e;
+  --c7: #a14a76; --c8: #4b5563;
+
+  --overlay: rgb(15 16 18 / 0.88);          /* lightbox backdrop */
+  --scrim: rgb(0 0 0 / 0.55);               /* neutral scrim under text on a photo */
+
+  --font-ui: "DM Sans", "Noto Sans Bengali", system-ui, sans-serif;
+  --font-display: "Newsreader", "Noto Serif Bengali", Georgia, serif;
+
+  --fs-title: clamp(28px, 2.4vw + 16px, 40px);
+  --fs-section: 18px;
+  --fs-kpi: 24px;
+  --fs-body: 14px;
+  --fs-small: 12px;
+
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --control-height: 36px;
+  --hit: 44px;                              /* minimum touch target */
+  --gap: 24px;
+  --pad: 24px;
+  --sidebar-width: 232px;
+  --row-gap: 6px;                           /* gap between photos in the justified grid */
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #121315; --surface: #1a1b1e; --raised: #232428; --border: #2c2e33; --rule: #25272b;
+    --control: #44474e; --text: #ececea; --muted: #9a9ea8;
+    --accent: #e0677b; --accent-soft: #2a1519; --accent-track: #4a2229; --accent-ink: #f4c3cb;
+    --on-accent: #1a0a0d;
+    --positive: #4ade80; --negative: #f87171; --warning: #fbbf24;
+    --pill-positive-bg: #12301f; --pill-positive-ink: #86efac;
+    --pill-negative-bg: #341618; --pill-negative-ink: #fca5a5;
+    --pill-warning-bg: #33260a;  --pill-warning-ink: #fcd34d;
+    --pill-neutral-bg: #2a2c31;  --pill-neutral-ink: #c9ccd3;
+    --c1: #e0677b; --c2: #6bb0e0; --c3: #6fcf97; --c4: #e0b14f; --c5: #a99be0; --c6: #4fd1c5;
+    --c7: #e08ab4; --c8: #9ca3af;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #121315; --surface: #1a1b1e; --raised: #232428; --border: #2c2e33; --rule: #25272b;
+  --control: #44474e; --text: #ececea; --muted: #9a9ea8;
+  --accent: #e0677b; --accent-soft: #2a1519; --accent-track: #4a2229; --accent-ink: #f4c3cb;
+  --on-accent: #1a0a0d;
+  --positive: #4ade80; --negative: #f87171; --warning: #fbbf24;
+  --pill-positive-bg: #12301f; --pill-positive-ink: #86efac;
+  --pill-negative-bg: #341618; --pill-negative-ink: #fca5a5;
+  --pill-warning-bg: #33260a;  --pill-warning-ink: #fcd34d;
+  --pill-neutral-bg: #2a2c31;  --pill-neutral-ink: #c9ccd3;
+  --c1: #e0677b; --c2: #6bb0e0; --c3: #6fcf97; --c4: #e0b14f; --c5: #a99be0; --c6: #4fd1c5;
+  --c7: #e08ab4; --c8: #9ca3af;
+}

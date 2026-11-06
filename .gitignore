@@ -1,0 +1,31 @@
+# --- Private data: student photos, names, face biometrics. Never commit. ---
+/sorted/
+/gallery/img/
+/gallery/data/
+
+# --- Secrets ---
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+
+# --- Generated / local tooling ---
+__pycache__/
+*.pyc
+*.log
+*.npy
+.vercel/
+.netlify/
+node_modules/
+.playwright-mcp/
+.taste-skill/
+graphify-out/cache/
+graphify-out/graph.html
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+graphify-out/manifest.json
