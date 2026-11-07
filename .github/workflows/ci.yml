@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24 # --test-isolation needs Node 23.6+
       - run: node --test --test-isolation=none tests/*.test.mjs
         working-directory: gallery/functions
 
