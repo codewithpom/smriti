@@ -50,6 +50,10 @@ def main():
                 img.save(path, quality=85)
             if key == "web":  # the grid shows this colour while the image loads, so keep it equal to the real average
                 ph["color"] = "#%02x%02x%02x" % Image.open(path).convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    for ph in photos:  # the viewer only outlines faces that carry a match status
+        for face in ph.get("faces", []):
+            face.setdefault("status", "high")
+            face.setdefault("score", 0.8)
     (ROOT / "data/photos.json").write_text(json.dumps(photos, ensure_ascii=False), encoding="utf-8")
     print(f"portraits pasted into web images: {pasted}")
 
