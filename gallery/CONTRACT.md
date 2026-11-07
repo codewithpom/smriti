@@ -31,7 +31,7 @@ Valid student: token `email` matches `rkmv<digits>@gmail.com`, `email_verified =
 - `votes/{qid}__{uid}`: `{qid, qtype, uid, regno, answer, ts}`. Create/update/delete: only own uid, `users/{uid}.status == 'approved'`, doc id equals `qid + '__' + uid`, `answer` is a non-empty string <= 64 chars, `ts == request.time`. Read: own votes or admin.
 - `meta/progress`: `{settled:{qid:true}, disputed:[qid], updatedAt}`. Read: approved users or admin. Write: admin only. Single doc on purpose (read budget).
 - Everything else denied.
-- Admin = email in a list inside `firestore.rules` (currently `codewithpom@gmail.com`; add more freelancers there and in the `ADMIN_EMAILS` Pages secret).
+- Admin = email in a list inside `firestore.rules` (currently `codewithpom@gmail.com`; add more maintainers there and in the `ADMIN_EMAILS` Pages secret).
 
 ### Read/write budget (Spark: 50k reads/day, 20k writes/day)
 - A student load = 1 read of `meta/progress` + their own votes (cache the answered set in `localStorage` key `rkmv.votes.<uid>`; query `votes` where `uid == me` only when the cache is empty).
