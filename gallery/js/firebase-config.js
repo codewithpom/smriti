@@ -1,7 +1,7 @@
-// Firebase web config. Public by design (security comes from firestore.rules), but replace the placeholders before deploy.
+// Firebase web config. Public by design (security comes from firestore.rules, not from hiding these values).
 export const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-  projectId: 'YOUR_PROJECT_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: 'AIzaSyALSX2vc8RysZ4Wa2KJQLLLmvWrJHB7MK0',
+  authDomain: 'smriti-gallery-80808.firebaseapp.com',
+  projectId: 'smriti-gallery-80808',
+  appId: '1:512695302848:web:2e1ed4f04326d4f64a8b25',
 };

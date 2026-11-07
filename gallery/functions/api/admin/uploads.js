@@ -1,4 +1,5 @@
 import { requireAdmin, errorResponse, jsonResponse } from '../../_shared/auth.js';
+import { storage } from '../../_shared/store.js';
 
 export async function onRequestGet({ request, env }) {
   const auth = await requireAdmin(request, env);
@@ -6,7 +7,7 @@ export async function onRequestGet({ request, env }) {
   const objects = [];
   let cursor;
   do {
-    const listed = await env.PHOTOS.list({ prefix: 'pending/', cursor });
+    const listed = await storage(env).list({ prefix: 'pending/', cursor });
     objects.push(...listed.objects);
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor);
@@ -24,9 +25,9 @@ export async function onRequestPost({ request, env }) {
   try { body = await request.json(); } catch { return errorResponse(400, 'invalid_json'); }
   const { key, action } = body ?? {};
   if (typeof key !== 'string' || !/^pending\/[A-Za-z0-9_-]+\/[0-9]+-[0-9a-f-]+\.(jpg|png|webp)$/.test(key) || !['approve', 'reject'].includes(action)) return errorResponse(400, 'invalid_request');
-  const object = await env.PHOTOS.get(key);
+  const object = await storage(env).get(key);
   if (!object) return errorResponse(404, 'not_found');
-  if (action === 'approve') await env.PHOTOS.put(`inbox/${crypto.randomUUID()}.${key.split('.').pop()}`, object.body, { httpMetadata: object.httpMetadata });
-  await env.PHOTOS.delete(key);
+  if (action === 'approve') await storage(env).put(`inbox/${crypto.randomUUID()}.${key.split('.').pop()}`, object.body, { httpMetadata: object.httpMetadata });
+  await storage(env).delete(key);
   return jsonResponse({ ok: true });
 }

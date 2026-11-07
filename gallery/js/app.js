@@ -9,13 +9,14 @@ import * as person from './views/person.js';
 import * as friends from './views/friends.js';
 import * as places from './views/places.js';
 import * as review from './views/review.js';
+import { DEMO } from './config.js';
 
 const SITE = 'RKMV Gallery';
 const views = { gallery, people, person, friends, places, review };
 // Loaded on first visit, so the public pages do not download the admin and upload code.
 const lazyViews = { admin: () => import('./views/admin.js'), upload: () => import('./views/upload.js') };
 const navFor = { person: 'people' };
-const REVIEW = location.hostname === '127.0.0.1'; // local review server: no sign-in gate
+const REVIEW = location.hostname === '127.0.0.1' || DEMO; // local review server and the public demo: no sign-in gate
 const view = document.getElementById('view');
 const $ = (s) => document.querySelector(s);
 
@@ -90,6 +91,7 @@ async function computeAccess() {
   try {
     const user = await firstUser();
     if (!user) return { state: 'signed-out' };
+    if (await isAdmin()) return { state: 'ok', admin: true }; // admins need no roster entry (the Function checks ADMIN_EMAILS)
     const p = await currentProfile();
     if (!p) return { state: 'invalid' };
     if (p.status !== 'approved') return { state: p.status === 'blocked' ? 'blocked' : 'pending' };
@@ -110,7 +112,8 @@ function checkAccess() {
 function setRoles(acc) {
   document.querySelectorAll('[data-role="member"]').forEach((e) => { e.hidden = acc.state !== 'ok'; });
   document.querySelectorAll('[data-role="admin"]').forEach((e) => { e.hidden = !acc.admin; });
-  document.querySelectorAll('[data-sign-out]').forEach((e) => { e.hidden = acc.state === 'signed-out'; });
+  document.querySelectorAll('[data-sign-out]').forEach((e) => { e.hidden = acc.state === 'signed-out' || DEMO; });
+  if (DEMO) document.querySelectorAll('[data-route="upload"]').forEach((e) => { e.hidden = true; }); // uploads need an account
 }
 
 function showGate(acc) {
@@ -220,6 +223,8 @@ function init() {
   applyTheme(theme);
   onChange(showCount);
   window.addEventListener('hashchange', route);
+  if (DEMO) document.body.prepend(el('p', { class: 'muted small', role: 'note', style: { margin: '0', padding: '.5rem 1rem', textAlign: 'center', background: 'var(--surface-2, #eee)' } }, 'Demo with fabricated data. Faces are AI-generated (SFHQ, CC0) and nobody is real. Answers are not saved. ',
+    el('a', { href: 'https://github.com/codewithpom/smriti', rel: 'noopener' }, 'Source code')));
   if (REVIEW) { route().then(showCount); return; }
   // Fires once on load and again on every sign-in or sign-out.
   onUser(() => { access = null; route().then(showCount); });

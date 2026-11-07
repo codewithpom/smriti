@@ -1,7 +1,7 @@
 import { getApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc, startAfter,
+  collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc, startAfter, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const db = getFirestore(getApp());
@@ -9,6 +9,38 @@ const db = getFirestore(getApp());
 export async function listUsers() {
   const snapshot = await getDocs(collection(db, 'users'));
   return snapshot.docs.map((item) => ({ uid: item.id, ...item.data() }));
+}
+
+// Admin only: one roster doc per registration number lets that student register. 400 writes per batch (limit is 500).
+export async function seedRoster(people) {
+  const students = people.filter((p) => p.kind === 'student' && p.reg_no);
+  for (let i = 0; i < students.length; i += 400) {
+    const batch = writeBatch(db);
+    students.slice(i, i + 400).forEach((p) => batch.set(doc(db, 'roster', String(p.reg_no)), { pid: p.id, name: p.name }));
+    await batch.commit();
+  }
+  return students.length;
+}
+
+// Admin only: let extra students in. Takes pasted text (commas, spaces or lines), keeps only rkmv<digits>@gmail.com.
+// pid is S<regno>, the same shape the pipeline uses; merge keeps the name and pid of students already imported.
+export async function addRoster(text) {
+  const found = String(text).toLowerCase().split(/[\s,;]+/).filter(Boolean);
+  const regnos = [...new Set(found.map((s) => /^rkmv(\d+)@gmail\.com$/.exec(s)?.[1]).filter(Boolean))];
+  for (let i = 0; i < regnos.length; i += 400) {
+    const batch = writeBatch(db);
+    regnos.slice(i, i + 400).forEach((r) => batch.set(doc(db, 'roster', r), { pid: `S${r}` }, { merge: true }));
+    await batch.commit();
+  }
+  return { added: regnos.length, skipped: found.length - found.filter((s) => /^rkmv\d+@gmail\.com$/.test(s)).length };
+}
+
+export async function approveUsers(uids) {
+  for (let i = 0; i < uids.length; i += 400) {
+    const batch = writeBatch(db);
+    uids.slice(i, i + 400).forEach((uid) => batch.update(doc(db, 'users', uid), { status: 'approved' }));
+    await batch.commit();
+  }
 }
 
 export function setUserStatus(uid, status) {

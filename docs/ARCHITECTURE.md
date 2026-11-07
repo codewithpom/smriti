@@ -8,7 +8,7 @@ Zero paid services, student data of minors, and a few hundred users who show up 
 |---|---|---|
 | Login | Firebase Auth (Google) | Hardened, free to 50k users, no password handling |
 | Votes and approvals | Firestore + security rules | Access control is declarative and testable; no server code to get wrong |
-| Private data files, uploads | Cloudflare Pages Functions + R2 | Firebase Storage and Cloud Functions need a paid plan; R2 is free to 10 GB |
+| Private data files, uploads | Cloudflare Pages Functions + Workers KV | Firebase Storage and Cloud Functions need a paid plan, and R2 asks for a card; KV is free with no card (25 MiB per value, ~1k writes a day). `functions/_shared/store.js` also accepts an R2 bucket |
 | Static site | Cloudflare Pages | Free bandwidth |
 
 The only custom auth code is one small token check in `functions/_shared/auth.js`. Everything else is rules.
@@ -21,7 +21,7 @@ The only custom auth code is one small token check in `functions/_shared/auth.js
 5. The pipeline re-matches faces and rebuilds the data files. Settled questions disappear from the queue.
 
 ## Firestore model
-`roster/{regno}` (seeded, read-only to users) | `users/{uid}` (pending, then approved or blocked by an admin) | `votes/{qid}__{uid}` (one per student per question) | `meta/progress` (single doc on purpose, to protect the read quota) | `overrides/{qid}` (admin only)
+`roster/{regno}` (seeded, read-only to users) | `users/{uid}` (created `approved` on first sign-in; an admin can block) | `votes/{qid}__{uid}` (one per student per question) | `meta/progress` (single doc on purpose, to protect the read quota) | `overrides/{qid}` (admin only)
 
 ## Decisions worth knowing
 - **One progress document, not a collection.** 350 students reading 1,200 settled-question docs would blow the 50k-reads-a-day free limit. One doc is one read.

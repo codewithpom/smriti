@@ -1,0 +1,635 @@
+[
+  {
+    "id": "S9001",
+    "kind": "student",
+    "name": "Demo Student 01",
+    "reg_no": "9001",
+    "section": "A",
+    "photos": 4,
+    "avatar": "img/people/S9001.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9005",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9013",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9003",
+        "weight": 0.25,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9002",
+    "kind": "student",
+    "name": "Demo Student 02",
+    "reg_no": "9002",
+    "section": "B",
+    "photos": 2,
+    "avatar": "img/people/S9002.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9003",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9005",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9006",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9003",
+    "kind": "student",
+    "name": "Demo Student 03",
+    "reg_no": "9003",
+    "section": "C",
+    "photos": 4,
+    "avatar": "img/people/S9003.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9006",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9005",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9002",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9004",
+    "kind": "student",
+    "name": "Demo Student 04",
+    "reg_no": "9004",
+    "section": "A",
+    "photos": 3,
+    "avatar": "img/people/S9004.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9003",
+        "weight": 0.333,
+        "shared": 1
+      },
+      {
+        "id": "S9005",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9005",
+    "kind": "student",
+    "name": "Demo Student 05",
+    "reg_no": "9005",
+    "section": "B",
+    "photos": 4,
+    "avatar": "img/people/S9005.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9001",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9003",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9002",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9006",
+    "kind": "student",
+    "name": "Demo Student 06",
+    "reg_no": "9006",
+    "section": "C",
+    "photos": 3,
+    "avatar": "img/people/S9006.webp",
+    "community": 0,
+    "friends": [
+      {
+        "id": "S9003",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9002",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9005",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9007",
+    "kind": "student",
+    "name": "Demo Student 07",
+    "reg_no": "9007",
+    "section": "A",
+    "photos": 4,
+    "avatar": "img/people/S9007.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9011",
+        "weight": 0.75,
+        "shared": 3
+      },
+      {
+        "id": "S9006",
+        "weight": 0.333,
+        "shared": 1
+      },
+      {
+        "id": "S9008",
+        "weight": 0.25,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9008",
+    "kind": "student",
+    "name": "Demo Student 08",
+    "reg_no": "9008",
+    "section": "B",
+    "photos": 7,
+    "avatar": "img/people/S9008.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9012",
+        "weight": 1.0,
+        "shared": 2
+      },
+      {
+        "id": "S9009",
+        "weight": 0.6,
+        "shared": 3
+      },
+      {
+        "id": "S9011",
+        "weight": 0.571,
+        "shared": 4
+      }
+    ]
+  },
+  {
+    "id": "S9009",
+    "kind": "student",
+    "name": "Demo Student 09",
+    "reg_no": "9009",
+    "section": "C",
+    "photos": 5,
+    "avatar": "img/people/S9009.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9012",
+        "weight": 1.0,
+        "shared": 2
+      },
+      {
+        "id": "S9008",
+        "weight": 0.6,
+        "shared": 3
+      },
+      {
+        "id": "S9011",
+        "weight": 0.6,
+        "shared": 3
+      }
+    ]
+  },
+  {
+    "id": "S9010",
+    "kind": "student",
+    "name": "Demo Student 10",
+    "reg_no": "9010",
+    "section": "A",
+    "photos": 3,
+    "avatar": "img/people/S9010.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9008",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9011",
+    "kind": "student",
+    "name": "Demo Student 11",
+    "reg_no": "9011",
+    "section": "B",
+    "photos": 7,
+    "avatar": "img/people/S9011.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9007",
+        "weight": 0.75,
+        "shared": 3
+      },
+      {
+        "id": "S9009",
+        "weight": 0.6,
+        "shared": 3
+      },
+      {
+        "id": "S9008",
+        "weight": 0.571,
+        "shared": 4
+      }
+    ]
+  },
+  {
+    "id": "S9012",
+    "kind": "student",
+    "name": "Demo Student 12",
+    "reg_no": "9012",
+    "section": "C",
+    "photos": 2,
+    "avatar": "img/people/S9012.webp",
+    "community": 1,
+    "friends": [
+      {
+        "id": "S9008",
+        "weight": 1.0,
+        "shared": 2
+      },
+      {
+        "id": "S9009",
+        "weight": 1.0,
+        "shared": 2
+      },
+      {
+        "id": "S9011",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9013",
+    "kind": "student",
+    "name": "Demo Student 13",
+    "reg_no": "9013",
+    "section": "A",
+    "photos": 2,
+    "avatar": "img/people/S9013.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9001",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9014",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9015",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9014",
+    "kind": "student",
+    "name": "Demo Student 14",
+    "reg_no": "9014",
+    "section": "B",
+    "photos": 5,
+    "avatar": "img/people/S9014.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9015",
+        "weight": 0.6,
+        "shared": 3
+      },
+      {
+        "id": "S9017",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9013",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9015",
+    "kind": "student",
+    "name": "Demo Student 15",
+    "reg_no": "9015",
+    "section": "C",
+    "photos": 9,
+    "avatar": "img/people/S9015.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9014",
+        "weight": 0.6,
+        "shared": 3
+      },
+      {
+        "id": "S9002",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9013",
+        "weight": 0.5,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9016",
+    "kind": "student",
+    "name": "Demo Student 16",
+    "reg_no": "9016",
+    "section": "A",
+    "photos": 3,
+    "avatar": "img/people/S9016.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9014",
+        "weight": 0.333,
+        "shared": 1
+      },
+      {
+        "id": "S9015",
+        "weight": 0.333,
+        "shared": 1
+      },
+      {
+        "id": "S9017",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9017",
+    "kind": "student",
+    "name": "Demo Student 17",
+    "reg_no": "9017",
+    "section": "B",
+    "photos": 4,
+    "avatar": "img/people/S9017.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9014",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9018",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9016",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9018",
+    "kind": "student",
+    "name": "Demo Student 18",
+    "reg_no": "9018",
+    "section": "C",
+    "photos": 7,
+    "avatar": "img/people/S9018.webp",
+    "community": 2,
+    "friends": [
+      {
+        "id": "S9017",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9013",
+        "weight": 0.5,
+        "shared": 1
+      },
+      {
+        "id": "S9014",
+        "weight": 0.4,
+        "shared": 2
+      }
+    ]
+  },
+  {
+    "id": "S9019",
+    "kind": "student",
+    "name": "Demo Student 19",
+    "reg_no": "9019",
+    "section": "A",
+    "photos": 7,
+    "avatar": "img/people/S9019.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9021",
+        "weight": 0.571,
+        "shared": 4
+      },
+      {
+        "id": "S9020",
+        "weight": 0.5,
+        "shared": 3
+      },
+      {
+        "id": "S9022",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9020",
+    "kind": "student",
+    "name": "Demo Student 20",
+    "reg_no": "9020",
+    "section": "B",
+    "photos": 6,
+    "avatar": "img/people/S9020.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9019",
+        "weight": 0.5,
+        "shared": 3
+      },
+      {
+        "id": "S9021",
+        "weight": 0.333,
+        "shared": 2
+      },
+      {
+        "id": "S9023",
+        "weight": 0.25,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9021",
+    "kind": "student",
+    "name": "Demo Student 21",
+    "reg_no": "9021",
+    "section": "C",
+    "photos": 8,
+    "avatar": "img/people/S9021.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9022",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9019",
+        "weight": 0.571,
+        "shared": 4
+      },
+      {
+        "id": "S9024",
+        "weight": 0.5,
+        "shared": 2
+      }
+    ]
+  },
+  {
+    "id": "S9022",
+    "kind": "student",
+    "name": "Demo Student 22",
+    "reg_no": "9022",
+    "section": "A",
+    "photos": 3,
+    "avatar": "img/people/S9022.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9021",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9024",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9018",
+        "weight": 0.333,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9023",
+    "kind": "student",
+    "name": "Demo Student 23",
+    "reg_no": "9023",
+    "section": "B",
+    "photos": 4,
+    "avatar": "img/people/S9023.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9022",
+        "weight": 0.333,
+        "shared": 1
+      },
+      {
+        "id": "S9018",
+        "weight": 0.25,
+        "shared": 1
+      },
+      {
+        "id": "S9019",
+        "weight": 0.25,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "id": "S9024",
+    "kind": "student",
+    "name": "Demo Student 24",
+    "reg_no": "9024",
+    "section": "C",
+    "photos": 4,
+    "avatar": "img/people/S9024.webp",
+    "community": 3,
+    "friends": [
+      {
+        "id": "S9022",
+        "weight": 0.667,
+        "shared": 2
+      },
+      {
+        "id": "S9021",
+        "weight": 0.5,
+        "shared": 2
+      },
+      {
+        "id": "S9018",
+        "weight": 0.25,
+        "shared": 1
+      }
+    ]
+  }
+]

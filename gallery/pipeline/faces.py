@@ -17,8 +17,8 @@ from PIL import Image, ImageOps
 
 GALLERY = Path(__file__).resolve().parent.parent
 DATA = GALLERY / "data"
-SRC = Path(os.environ.get("RKMV_SOURCE", r"C:\Users\Mr\Downloads\sorted_photos\sorted"))
-HELLO = Path(os.environ.get("RKMV_PEOPLE", r"D:\hello\data"))
+SRC = Path(os.environ.get("RKMV_SOURCE", GALLERY.parent / "sorted"))
+HELLO = Path(os.environ.get("RKMV_PEOPLE", GALLERY.parent / "people"))  # folder with identities.json and the student portraits
 
 MAX_SIDE = 2560          # detection resolution cap; small faces in group shots need pixels
 MIN_DET = 0.60           # detector confidence floor

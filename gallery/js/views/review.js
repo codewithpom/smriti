@@ -1,13 +1,14 @@
 import { el, label, plural, ls, postJSON, SAVE_FAIL, faceCrop, avatar, imgUrl } from '../util.js';
 import { store, emit, load } from '../store.js';
 import { submitVote, deleteVote } from '../votes.js';
+import { DEMO } from '../config.js';
 
 const KEY = 'rkmv.answered';
 const LAST = 'rkmv.lastScene';
 const REASON = { disagree: 'The folder and the picture point to different places.', vague: 'It is hard to tell from the picture.', low: 'We are not sure about this one.' };
 const LOCAL = location.hostname === '127.0.0.1'; // review server keeps the old /answer path; the deployed site writes votes
-const saveAnswer = (q, answer, extra) => (LOCAL ? postJSON('/answer', { qid: q.id, type: q.type, ...extra }) : submitVote(q, answer));
-const undoSave = (q) => (LOCAL ? postJSON('/undo', {}) : deleteVote(q.id));
+const saveAnswer = (q, answer, extra) => (DEMO ? Promise.resolve() : LOCAL ? postJSON('/answer', { qid: q.id, type: q.type, ...extra }) : submitVote(q, answer));
+const undoSave = (q) => (DEMO ? Promise.resolve() : LOCAL ? postJSON('/undo', {}) : deleteVote(q.id));
 
 export function mount(root, ctx) {
   const history = []; // {q, saved, counted}

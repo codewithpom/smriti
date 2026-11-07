@@ -7,14 +7,16 @@ Smriti (Sanskrit for *memory*) turns a messy folder of event photos into a priva
 
 It was built for a real client (a school) by two freelancers on a hard constraint: **no paid services**.
 
-**Status:** all parts are implemented and covered by automated tests (rules, Functions, tally). The first live deployment and browser end-to-end tests are still to come, so treat this as a serious prototype, not a finished product.
+**Live demo:** https://smriti-gallery.pages.dev (no sign-in, fabricated data; press **F** in the photo viewer to outline detected faces in red).
+
+**Status:** deployed on free tiers (this public demo plus a private batch site). Rules, Functions, tally, image-renaming and the photo filter have automated tests. Browser end-to-end tests are still to come, so treat this as a serious prototype, not a finished product.
 
 ## What it does
 
 - **Private gallery.** Photos, people, places and a force-directed "friends" graph built from who appears together.
 - **Face matching, humans in the loop.** InsightFace embeds every face and proposes candidates. Anything uncertain becomes a review question instead of a guess.
 - **Crowd review.** Students answer short questions ("Is this Asha?", "Where was this taken?"). A weighted vote settles each one. Disputes go to an admin.
-- **Google sign-in, locked to the batch.** Only accounts shaped like `rkmv<registration number>@gmail.com` that are in the roster *and* approved by an admin get in.
+- **Google sign-in, locked to the batch.** Only accounts shaped like `rkmv<registration number>@gmail.com` that are in the roster get in on first sign-in (no waiting room). An admin pastes extra emails into the dashboard to add students, and can block anyone.
 - **Student uploads** with server-side validation, quotas and admin approval.
 - **Admin dashboard.** Approve students, resolve disputes, review uploads, watch per-student stats, export the settled answers.
 - **Safe ingest** of the school's own Facebook page photos with `gallery-dl`, on the school's permission, run locally with your own cookies.
@@ -29,7 +31,7 @@ flowchart LR
   S -- Bearer ID token --> PF[Cloudflare Pages Functions]
   PF -- verify RS256 token --> FA
   PF -- approved? with user's own token --> FS
-  PF --> R2[(Cloudflare R2: data JSON, uploads)]
+  PF --> R2[(Cloudflare KV: data JSON, uploads)]
   S -- static assets --> CP[Cloudflare Pages]
   A[Admin dashboard] --> FS
   A --> PF
@@ -65,7 +67,7 @@ Photos of minors and face data are the sensitive part, so the rules are strict a
 | Threat | Control |
 |---|---|
 | Someone outside the batch signs in | Firestore rules and the Function both require `email_verified`, the `rkmv<digits>@gmail.com` pattern, and a roster entry |
-| A student approves themselves | `users` create is forced to `pending`; only an admin can change `status` (tested) |
+| A student unblocks themselves | `users` can only be created as `approved` and only for a roster member; only an admin can change `status` (tested) |
 | Vote tampering or ballot stuffing | One doc per `{question}__{uid}`; rules force own uid, approved status, valid id format and a matching question type (tested) |
 | Quota exhaustion by one account | Id format and length limits, 50 pending uploads per student, 10 MB streamed upload cap |
 | Forged tokens | Functions verify Firebase ID tokens with WebCrypto against Google's JWKS: algorithm pinned to RS256, `aud`, `iss`, `exp`, `sub` and `email_verified` checked |
@@ -76,7 +78,7 @@ Photos of minors and face data are the sensitive part, so the rules are strict a
 
 - Photos are served as static assets so they cost nothing. They are protected by unguessable filenames (capability links), not by a login check, because the free Workers tier allows only 100k requests a day. Anyone who obtains one photo's link can open that photo. Per-image auth means paying for Workers or other hosting.
 - Firestore security rules cannot rate-limit. Abuse is bounded by the quotas above and visible in the admin Stats tab.
-- Student emails follow a guessable pattern, so the admin approval step is not optional.
+- Student emails follow a guessable pattern, so the roster (and the verified-email check) is the only gate. Anyone who controls a roster address can sign in; the admin can block them afterwards. Add addresses to the roster only if you know the account belongs to that student.
 
 See [`SECURITY.md`](SECURITY.md) for the reporting policy.
 
@@ -87,14 +89,14 @@ See [`SECURITY.md`](SECURITY.md) for the reporting policy.
 | Firebase Auth | Google sign-in | 50k monthly active users |
 | Firestore | votes, users, progress | 50k reads and 20k writes per day, 1 GiB |
 | Cloudflare Pages | site + Functions | unlimited static bandwidth, 100k Function requests per day |
-| Cloudflare R2 | data JSON, uploads | 10 GB |
+| Cloudflare Workers KV | data JSON, uploads | 1 GB, about 1k writes per day (no card needed) |
 | GitHub Actions | face scan (private repo) | 2000 minutes per month |
 
 Read budget is the tight one, so a student's browser reads one progress doc plus only their own votes, with the answered set cached locally. The question list is a static JSON.
 
 ## Tech stack
 
-Vanilla JavaScript (ES modules, no bundler) | Firebase Auth and Firestore | Cloudflare Pages, Functions and R2 | Python 3.12, InsightFace, ONNX Runtime, NetworkX, d3 | Node test runner and the Firebase emulator | GitHub Actions
+Vanilla JavaScript (ES modules, no bundler) | Firebase Auth and Firestore | Cloudflare Pages, Functions and Workers KV | Python 3.12, InsightFace, ONNX Runtime, NetworkX, d3 | Node test runner and the Firebase emulator | GitHub Actions
 
 ## Repo map
 
@@ -129,12 +131,15 @@ cd gallery/pipeline && python -m unittest test_tally  # 3 tests
 **Deploy (all free):**
 
 1. Create a Firebase project, enable Google sign-in and Firestore, paste the web config into `gallery/js/firebase-config.js`, then `firebase deploy --only firestore:rules`.
-2. Create an R2 bucket, put its name in `gallery/wrangler.toml`.
+2. Create a free KV namespace (`wrangler kv namespace create <name>`, no card needed) and put its id in `gallery/wrangler.toml`. An R2 bucket bound as `PHOTOS` also works.
 3. `npx wrangler pages secret put ADMIN_EMAILS` (comma-separated admin emails).
 4. Seed the roster: `python gallery/pipeline/seed_roster.py --dry-run` first.
-5. `gallery/pipeline/deploy_cloudflare.ps1 -Deploy -Bucket <bucket>` (builds `dist/`, uploads data to R2, deploys Pages).
+5. `gallery/pipeline/deploy_cloudflare.ps1 -Deploy` (builds `dist/`, uploads the data JSON to KV, deploys Pages).
 
 The photo data, face embeddings and student list are **never** in this repository. You bring your own.
+
+## Demo data
+Everything on the demo site is fabricated: names are "Demo Student NN", scenes are generated shapes, and the faces are samples from the SFHQ synthetic face set (StyleGAN2, CC0-1.0 on Kaggle), so they depict nobody. See [`gallery/demo/README.md`](gallery/demo/README.md). The `rkmv<number>@gmail.com` email pattern in the rules and sign-in code belongs to the school this was built for; change it for your own deployment.
 
 ## Privacy and ethics
 
@@ -143,7 +148,7 @@ This project handles photos and biometric data of minors. If you adapt it: get w
 ## Roadmap
 
 - Unguessable image filenames at build time (`HMAC(id)`), then optional per-image auth
-- Finish the CI scan end to end (portrait source on the runner, image upload, inbox archive)
+- Finish the CI scan end to end (it still assumes R2; KV has no S3 API, so run the pipeline locally or add R2) (portrait source on the runner, image upload, inbox archive)
 - Instagram ingest alongside Facebook
 - Browser smoke tests for the sign-in and review flows
 

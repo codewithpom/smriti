@@ -1,0 +1,1175 @@
+[
+  {
+    "id": "sp28b6ebde",
+    "type": "scene",
+    "priority": 0.462,
+    "photo": "p28b6ebde",
+    "reason": "disagree",
+    "options": [
+      "prayer-temple",
+      "indoor-other",
+      "hostel"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spffcf0605",
+    "type": "scene",
+    "priority": 0.786,
+    "photo": "pffcf0605",
+    "reason": "low",
+    "options": [
+      "unclear-selfie",
+      "dining-hall",
+      "outdoor-other"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp1278763d",
+    "type": "scene",
+    "priority": 0.771,
+    "photo": "p1278763d",
+    "reason": "low",
+    "options": [
+      "screenshots-collage",
+      "outing-trip",
+      "stage-auditorium-hall"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp8ea9b45d",
+    "type": "scene",
+    "priority": 0.853,
+    "photo": "p8ea9b45d",
+    "reason": "disagree",
+    "options": [
+      "hostel",
+      "unclear-selfie",
+      "prayer-temple"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp82f790ba",
+    "type": "scene",
+    "priority": 0.374,
+    "photo": "p82f790ba",
+    "reason": "disagree",
+    "options": [
+      "dining-hall",
+      "campus-courtyard-exterior",
+      "garden-fields"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp2e112db1",
+    "type": "scene",
+    "priority": 0.789,
+    "photo": "p2e112db1",
+    "reason": "disagree",
+    "options": [
+      "prayer-temple",
+      "office-storeroom",
+      "exhibition-fair"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp90742b99",
+    "type": "scene",
+    "priority": 0.89,
+    "photo": "p90742b99",
+    "reason": "disagree",
+    "options": [
+      "exhibition-fair",
+      "library",
+      "dining-hall"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp00f453be",
+    "type": "scene",
+    "priority": 0.54,
+    "photo": "p00f453be",
+    "reason": "disagree",
+    "options": [
+      "prayer-temple",
+      "garden-fields",
+      "office-storeroom"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spfc4a250e",
+    "type": "scene",
+    "priority": 0.369,
+    "photo": "pfc4a250e",
+    "reason": "low",
+    "options": [
+      "indoor-other",
+      "exhibition-fair",
+      "prayer-temple"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp258895cc",
+    "type": "scene",
+    "priority": 0.923,
+    "photo": "p258895cc",
+    "reason": "disagree",
+    "options": [
+      "stage-auditorium-hall",
+      "corridor-stairs",
+      "indoor-other"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spce0909b4",
+    "type": "scene",
+    "priority": 0.319,
+    "photo": "pce0909b4",
+    "reason": "disagree",
+    "options": [
+      "outing-trip",
+      "unclear-selfie",
+      "prayer-temple"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spc704e6c2",
+    "type": "scene",
+    "priority": 0.809,
+    "photo": "pc704e6c2",
+    "reason": "low",
+    "options": [
+      "classroom",
+      "exhibition-fair",
+      "hostel"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp1e40bdce",
+    "type": "scene",
+    "priority": 0.953,
+    "photo": "p1e40bdce",
+    "reason": "low",
+    "options": [
+      "stage-auditorium-hall",
+      "outdoor-other",
+      "indoor-other"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spe69712c3",
+    "type": "scene",
+    "priority": 0.654,
+    "photo": "pe69712c3",
+    "reason": "disagree",
+    "options": [
+      "classroom",
+      "outing-trip",
+      "prayer-temple"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spa7396900",
+    "type": "scene",
+    "priority": 0.785,
+    "photo": "pa7396900",
+    "reason": "disagree",
+    "options": [
+      "hostel",
+      "corridor-stairs",
+      "prayer-temple"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp2067101f",
+    "type": "scene",
+    "priority": 0.395,
+    "photo": "p2067101f",
+    "reason": "vague",
+    "options": [
+      "outdoor-other",
+      "dining-hall",
+      "exhibition-fair"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spf40943b5",
+    "type": "scene",
+    "priority": 0.989,
+    "photo": "pf40943b5",
+    "reason": "low",
+    "options": [
+      "hostel",
+      "unclear-selfie",
+      "stage-auditorium-hall"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "spe162f2d2",
+    "type": "scene",
+    "priority": 0.324,
+    "photo": "pe162f2d2",
+    "reason": "low",
+    "options": [
+      "prayer-temple",
+      "library",
+      "exhibition-fair"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp5a1cca25",
+    "type": "scene",
+    "priority": 0.345,
+    "photo": "p5a1cca25",
+    "reason": "low",
+    "options": [
+      "screenshots-collage",
+      "garden-fields",
+      "hostel"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "sp5c9010fb",
+    "type": "scene",
+    "priority": 0.805,
+    "photo": "p5c9010fb",
+    "reason": "vague",
+    "options": [
+      "stage-auditorium-hall",
+      "library",
+      "indoor-other"
+    ],
+    "all": [
+      "campus-courtyard-exterior",
+      "classroom",
+      "corridor-stairs",
+      "dining-hall",
+      "exhibition-fair",
+      "garden-fields",
+      "hostel",
+      "indoor-other",
+      "library",
+      "office-storeroom",
+      "outdoor-other",
+      "outing-trip",
+      "playground-sports",
+      "prayer-temple",
+      "screenshots-collage",
+      "stage-auditorium-hall",
+      "unclear-selfie"
+    ]
+  },
+  {
+    "id": "fpb87df2ec:0",
+    "type": "face",
+    "priority": 0.844,
+    "photo": "pb87df2ec",
+    "i": 0,
+    "bbox": [
+      0.2692,
+      0.5216,
+      0.1583,
+      0.1056
+    ],
+    "cands": [
+      "S9006",
+      "S9021",
+      "S9013"
+    ]
+  },
+  {
+    "id": "fp65a47f19:0",
+    "type": "face",
+    "priority": 0.859,
+    "photo": "p65a47f19",
+    "i": 0,
+    "bbox": [
+      0.775,
+      0.0183,
+      0.0862,
+      0.1293
+    ],
+    "cands": [
+      "S9019",
+      "S9007",
+      "S9023"
+    ]
+  },
+  {
+    "id": "fp5c9010fb:0",
+    "type": "face",
+    "priority": 0.496,
+    "photo": "p5c9010fb",
+    "i": 0,
+    "bbox": [
+      0.7049,
+      0.4471,
+      0.0908,
+      0.1362
+    ],
+    "cands": [
+      "S9022",
+      "S9024",
+      "S9015"
+    ]
+  },
+  {
+    "id": "fpa2be18f4:2",
+    "type": "face",
+    "priority": 0.636,
+    "photo": "pa2be18f4",
+    "i": 2,
+    "bbox": [
+      0.4713,
+      0.1425,
+      0.1489,
+      0.0992
+    ],
+    "cands": [
+      "S9022",
+      "S9013",
+      "S9024"
+    ]
+  },
+  {
+    "id": "fpc704e6c2:2",
+    "type": "face",
+    "priority": 0.377,
+    "photo": "pc704e6c2",
+    "i": 2,
+    "bbox": [
+      0.5269,
+      0.5784,
+      0.1236,
+      0.0824
+    ],
+    "cands": [
+      "S9018",
+      "S9024",
+      "S9022"
+    ]
+  },
+  {
+    "id": "fpd0e8939b:0",
+    "type": "face",
+    "priority": 0.85,
+    "photo": "pd0e8939b",
+    "i": 0,
+    "bbox": [
+      0.003,
+      0.5238,
+      0.1448,
+      0.0966
+    ],
+    "cands": [
+      "S9008",
+      "S9014",
+      "S9013"
+    ]
+  },
+  {
+    "id": "fpa2ea16ae:0",
+    "type": "face",
+    "priority": 0.726,
+    "photo": "pa2ea16ae",
+    "i": 0,
+    "bbox": [
+      0.8028,
+      0.247,
+      0.1694,
+      0.113
+    ],
+    "cands": [
+      "S9018",
+      "S9019",
+      "S9003"
+    ]
+  },
+  {
+    "id": "fp7a7f2040:1",
+    "type": "face",
+    "priority": 0.468,
+    "photo": "p7a7f2040",
+    "i": 1,
+    "bbox": [
+      0.2368,
+      0.7534,
+      0.0735,
+      0.1102
+    ],
+    "cands": [
+      "S9018",
+      "S9021",
+      "S9022"
+    ]
+  },
+  {
+    "id": "fpbadb1330:0",
+    "type": "face",
+    "priority": 0.842,
+    "photo": "pbadb1330",
+    "i": 0,
+    "bbox": [
+      0.8637,
+      0.2863,
+      0.0728,
+      0.1092
+    ],
+    "cands": [
+      "S9006",
+      "S9014",
+      "S9003"
+    ]
+  },
+  {
+    "id": "fpfc4a250e:0",
+    "type": "face",
+    "priority": 0.308,
+    "photo": "pfc4a250e",
+    "i": 0,
+    "bbox": [
+      0.4045,
+      0.6329,
+      0.082,
+      0.123
+    ],
+    "cands": [
+      "S9019",
+      "S9022",
+      "S9017"
+    ]
+  },
+  {
+    "id": "fpa2be18f4:0",
+    "type": "face",
+    "priority": 0.443,
+    "photo": "pa2be18f4",
+    "i": 0,
+    "bbox": [
+      0.2894,
+      0.1223,
+      0.1105,
+      0.0737
+    ],
+    "cands": [
+      "S9002",
+      "S9018",
+      "S9001"
+    ]
+  },
+  {
+    "id": "fp011dce07:0",
+    "type": "face",
+    "priority": 0.683,
+    "photo": "p011dce07",
+    "i": 0,
+    "bbox": [
+      0.5654,
+      0.8392,
+      0.0825,
+      0.1238
+    ],
+    "cands": [
+      "S9014",
+      "S9007",
+      "S9015"
+    ]
+  },
+  {
+    "id": "fp1278763d:0",
+    "type": "face",
+    "priority": 0.378,
+    "photo": "p1278763d",
+    "i": 0,
+    "bbox": [
+      0.3506,
+      0.8745,
+      0.1493,
+      0.0995
+    ],
+    "cands": [
+      "S9004",
+      "S9021",
+      "S9001"
+    ]
+  },
+  {
+    "id": "fpfc4a250e:2",
+    "type": "face",
+    "priority": 0.666,
+    "photo": "pfc4a250e",
+    "i": 2,
+    "bbox": [
+      0.1383,
+      0.3883,
+      0.1043,
+      0.1565
+    ],
+    "cands": [
+      "S9002",
+      "S9004",
+      "S9021"
+    ]
+  },
+  {
+    "id": "c1",
+    "type": "cluster",
+    "priority": 0.683,
+    "cluster": 1,
+    "size": 4,
+    "cands": [
+      "S9009",
+      "S9011",
+      "S9016"
+    ],
+    "sample": [
+      {
+        "photo": "p25b801d3",
+        "i": 0,
+        "bbox": [
+          0.442,
+          0.4916,
+          0.0929,
+          0.1393
+        ]
+      },
+      {
+        "photo": "pd4e23b7c",
+        "i": 1,
+        "bbox": [
+          0.8514,
+          0.6574,
+          0.1142,
+          0.1713
+        ]
+      },
+      {
+        "photo": "pd099619c",
+        "i": 1,
+        "bbox": [
+          0.809,
+          0.1589,
+          0.1134,
+          0.1701
+        ]
+      }
+    ],
+    "faces": [
+      "p25b801d3:0",
+      "pd4e23b7c:1",
+      "pd099619c:1",
+      "p53b80bc4:0"
+    ]
+  },
+  {
+    "id": "c2",
+    "type": "cluster",
+    "priority": 0.629,
+    "cluster": 2,
+    "size": 3,
+    "cands": [
+      "S9008",
+      "S9009",
+      "S9001"
+    ],
+    "sample": [
+      {
+        "photo": "pffcf0605",
+        "i": 0,
+        "bbox": [
+          0.2452,
+          0.5143,
+          0.1505,
+          0.1003
+        ]
+      },
+      {
+        "photo": "p82a4889d",
+        "i": 1,
+        "bbox": [
+          0.6779,
+          0.1765,
+          0.085,
+          0.1275
+        ]
+      },
+      {
+        "photo": "pbcffeaba",
+        "i": 0,
+        "bbox": [
+          0.4672,
+          0.3956,
+          0.1012,
+          0.1517
+        ]
+      }
+    ],
+    "faces": [
+      "pffcf0605:0",
+      "p82a4889d:1",
+      "pbcffeaba:0"
+    ]
+  },
+  {
+    "id": "c3",
+    "type": "cluster",
+    "priority": 0.697,
+    "cluster": 3,
+    "size": 5,
+    "cands": [
+      "S9011",
+      "S9014",
+      "S9023"
+    ],
+    "sample": [
+      {
+        "photo": "p1e40bdce",
+        "i": 2,
+        "bbox": [
+          0.0856,
+          0.8734,
+          0.1288,
+          0.0858
+        ]
+      },
+      {
+        "photo": "p011dce07",
+        "i": 2,
+        "bbox": [
+          0.2932,
+          0.2597,
+          0.098,
+          0.147
+        ]
+      },
+      {
+        "photo": "p4d899ac8",
+        "i": 0,
+        "bbox": [
+          0.8387,
+          0.7935,
+          0.1002,
+          0.1503
+        ]
+      }
+    ],
+    "faces": [
+      "p1e40bdce:2",
+      "p011dce07:2",
+      "p4d899ac8:0",
+      "pb87df2ec:2",
+      "pbcffeaba:2"
+    ]
+  },
+  {
+    "id": "c4",
+    "type": "cluster",
+    "priority": 0.594,
+    "cluster": 4,
+    "size": 4,
+    "cands": [
+      "S9002",
+      "S9014",
+      "S9018"
+    ],
+    "sample": [
+      {
+        "photo": "p9ee1742d",
+        "i": 0,
+        "bbox": [
+          0.046,
+          0.6188,
+          0.0995,
+          0.1493
+        ]
+      },
+      {
+        "photo": "p8ea9b45d",
+        "i": 0,
+        "bbox": [
+          0.1918,
+          0.4191,
+          0.0777,
+          0.1166
+        ]
+      },
+      {
+        "photo": "pc6f91b4b",
+        "i": 0,
+        "bbox": [
+          0.2325,
+          0.0691,
+          0.1671,
+          0.1114
+        ]
+      }
+    ],
+    "faces": [
+      "p9ee1742d:0",
+      "p8ea9b45d:0",
+      "pc6f91b4b:0",
+      "p82f790ba:0"
+    ]
+  },
+  {
+    "id": "c5",
+    "type": "cluster",
+    "priority": 0.465,
+    "cluster": 5,
+    "size": 6,
+    "cands": [
+      "S9006",
+      "S9007",
+      "S9008"
+    ],
+    "sample": [
+      {
+        "photo": "p616cff88",
+        "i": 0,
+        "bbox": [
+          0.6414,
+          0.0277,
+          0.1185,
+          0.1778
+        ]
+      },
+      {
+        "photo": "pb87df2ec",
+        "i": 1,
+        "bbox": [
+          0.2003,
+          0.4172,
+          0.1231,
+          0.0821
+        ]
+      },
+      {
+        "photo": "p462eddd7",
+        "i": 0,
+        "bbox": [
+          0.604,
+          0.2399,
+          0.162,
+          0.108
+        ]
+      }
+    ],
+    "faces": [
+      "p616cff88:0",
+      "pb87df2ec:1",
+      "p462eddd7:0",
+      "pd4e23b7c:0",
+      "peabdac26:0",
+      "p38b5e603:1"
+    ]
+  },
+  {
+    "id": "c6",
+    "type": "cluster",
+    "priority": 0.396,
+    "cluster": 6,
+    "size": 3,
+    "cands": [
+      "S9003",
+      "S9010",
+      "S9001"
+    ],
+    "sample": [
+      {
+        "photo": "p8ea9b45d",
+        "i": 1,
+        "bbox": [
+          0.5893,
+          0.1088,
+          0.1075,
+          0.1612
+        ]
+      },
+      {
+        "photo": "p2e0e6be5",
+        "i": 0,
+        "bbox": [
+          0.894,
+          0.6001,
+          0.1045,
+          0.1568
+        ]
+      },
+      {
+        "photo": "p90742b99",
+        "i": 1,
+        "bbox": [
+          0.3201,
+          0.7645,
+          0.0869,
+          0.1304
+        ]
+      }
+    ],
+    "faces": [
+      "p8ea9b45d:1",
+      "p2e0e6be5:0",
+      "p90742b99:1"
+    ]
+  }
+]

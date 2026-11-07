@@ -1,6 +1,6 @@
 # CONTRACT: crowd review build (every agent builds against this file; do not deviate, ask the lead)
 
-Plan: `C:\Users\Mr\.claude\plans\ok-so-now-write-delegated-piglet.md`. Static site in `gallery/` (vanilla ES modules, no bundler, no npm deps in the browser). Free tiers only.
+Plan: kept outside the repo. Static site in `gallery/` (vanilla ES modules, no bundler, no npm deps in the browser). Free tiers only.
 
 ## Hard rules
 - Never read, print, upload or send anything under `gallery/data/`, `gallery/img/` or `sorted/` (private student photos, names, face data). Work from this file and the code only.
@@ -27,7 +27,7 @@ Valid student: token `email` matches `rkmv<digits>@gmail.com`, `email_verified =
 
 ### Collections
 - `roster/{regno}`: `{pid, name}`. Read: signed-in valid student (own regno only: `regno == email digits`) or admin. Write: nobody (seeded by admin script with service account).
-- `users/{uid}`: `{email, regno, pid, status, createdAt}`. Create: own uid, valid student, `status == 'pending'`, regno/pid match roster. Read: own doc or admin. Update: admin only (sets `status` to `approved|blocked`). No delete.
+- `users/{uid}`: `{email, regno, pid, status, createdAt}`. Create: own uid, valid student, `status == 'approved'` (no waiting room; roster membership is the gate), regno/pid match roster. Read: own doc or admin. Update: admin only (sets `status` to `approved|blocked`). No delete.
 - `votes/{qid}__{uid}`: `{qid, qtype, uid, regno, answer, ts}`. Create/update/delete: only own uid, `users/{uid}.status == 'approved'`, doc id equals `qid + '__' + uid`, `answer` is a non-empty string <= 64 chars, `ts == request.time`. Read: own votes or admin.
 - `meta/progress`: `{settled:{qid:true}, disputed:[qid], updatedAt}`. Read: approved users or admin. Write: admin only. Single doc on purpose (read budget).
 - Everything else denied.

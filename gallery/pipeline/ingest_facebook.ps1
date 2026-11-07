@@ -13,9 +13,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Url = 'https://www.facebook.com/officialpageRKMVNarendrapur/photos',
+    [Parameter(Mandatory)][string]$Url,   # the page's /photos URL, e.g. https://www.facebook.com/<page>/photos
     [string]$Cookies = (Join-Path $PSScriptRoot '.secrets\facebook-cookies.txt'),
     [switch]$Simulate,
+    [Nullable[datetime]]$Since,   # stop at the first photo older than this (the page lists newest first)
     [ValidateRange(0, [int]::MaxValue)]
     [int]$Limit = 0   # 0 = no limit
 )
@@ -45,6 +46,7 @@ $gdlArgs = @(
     '-d', $destDir
 )
 if ($Limit -gt 0) { $gdlArgs += @('--range', "1-$Limit") }
+if ($Since)       { $gdlArgs += @('--filter', ('date >= datetime({0},{1},{2}) or abort()' -f $Since.Year, $Since.Month, $Since.Day)) }
 if ($Simulate)    { $gdlArgs += '--simulate' }
 $gdlArgs += $Url
 
@@ -54,6 +56,7 @@ if ($Simulate) {
     $count = @($lines | Where-Object { $_ -and $_.Trim() }).Count
     Write-Host "Simulate: $count item(s) would be considered. Nothing downloaded."
 } else {
+    $ErrorActionPreference = 'Continue'   # PowerShell 5.1 turns gallery-dl's stderr warnings into errors under 'Stop'
     & $gdlExe @gdlPre @gdlArgs
     if ($LASTEXITCODE -ne 0) { throw "gallery-dl exited with code $LASTEXITCODE" }
     Write-Host "Done. Files are in $destDir (archive: $archive)."

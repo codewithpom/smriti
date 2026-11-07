@@ -1,0 +1,13 @@
+name = "smriti-gallery"
+compatibility_date = "2026-11-06"
+pages_build_output_dir = "dist"
+
+# Storage: a free Workers KV namespace (no card needed). An R2 bucket bound as PHOTOS also works.
+[[kv_namespaces]]
+binding = "PHOTOS"
+id = "dbbb32af93aa4a24aaa6ad77fb2c896d"
+
+[vars]
+FIREBASE_PROJECT_ID = "smriti-gallery-80808"
+# ADMIN_EMAILS is NOT set here (this file is public in the repo). Set it as a secret:
+#   npx wrangler pages secret put ADMIN_EMAILS --project-name <project>

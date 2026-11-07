@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-SRC = Path(os.environ.get("RKMV_SOURCE", r"C:\Users\Mr\Downloads\sorted_photos\sorted"))
 GALLERY = Path(__file__).resolve().parent.parent
+SRC = Path(os.environ.get("RKMV_SOURCE", GALLERY.parent / "sorted"))  # source photos, one subfolder per album
 OUT = GALLERY / "data" / "catalog.json"
 GPS_IFD_TAG = 0x8825
 # 8-digit run not touching other digits: matches IMG-YYYYMMDD-WA0000, IMG_YYYYMMDD, YYYYMMDD

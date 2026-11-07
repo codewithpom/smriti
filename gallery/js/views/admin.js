@@ -1,6 +1,6 @@
 ﻿import { el } from '../util.js';
 import { getToken, isAdmin, currentProfile } from '../auth.js';
-import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus } from '../admin-data.js';
+import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers } from '../admin-data.js';
 
 const TABS = ['Users', 'Disputes', 'Uploads', 'Stats', 'Export'];
 const api = async (path, options = {}) => {
@@ -61,7 +61,32 @@ export function mount(root) {
   }
   async function users() {
     const list = await listUsers();
-    body.append(el('h2', { text: 'Users' }), el('ul', { class: 'plain admin-list' }, list.map((u) => el('li', {},
+    const pending = list.filter((u) => u.status === 'pending');
+    let armed = false;
+    const approveAll = button(`Approve all pending (${pending.length})`, async () => {
+      if (!pending.length) return;
+      if (!armed) { armed = true; approveAll.textContent = `Click again to approve ${pending.length} users`; return; }
+      try { await approveUsers(pending.map((u) => u.uid)); status.textContent = `${pending.length} users approved.`; await render(); }
+      catch (e) { status.textContent = e.message; }
+    });
+    const seed = button('Import roster from gallery data', async () => {
+      try {
+        const token = await getToken();
+        const r = await fetch('/api/data/people', { headers: { authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error(`Could not load the people list (${r.status}).`);
+        status.textContent = `Roster imported: ${await seedRoster(await r.json())} students.`;
+      } catch (e) { status.textContent = e.message; }
+    }, 'btn btn-quiet');
+    const emails = el('textarea', { class: 'input', rows: '3', 'aria-label': 'Student emails to add', placeholder: 'rkmv1234@gmail.com, rkmv5678@gmail.com' });
+    const addBtn = button('Add students', async () => {
+      try {
+        const { added, skipped } = await addRoster(emails.value);
+        status.textContent = `${added} student${added === 1 ? '' : 's'} can now sign in.${skipped ? ` Skipped ${skipped} that are not rkmv<number>@gmail.com.` : ''}`;
+        if (added) emails.value = '';
+      } catch (e) { status.textContent = e.message; }
+    });
+    body.append(el('h2', { text: 'Users' }), el('div', { class: 'rv-actions' }, seed, approveAll),
+      el('label', { class: 'muted small', text: 'Add more students (one email per line, or comma-separated)' }), emails, el('div', { class: 'rv-actions' }, addBtn), el('ul', { class: 'plain admin-list' }, list.map((u) => el('li', {},
       el('span', { class: 'admin-main' }, el('strong', { text: u.email || u.uid }), el('span', { class: 'muted small', text: `${u.pid || ''} · ${u.status}` })),
       u.status !== 'approved' && button('Approve', () => changeUser(u.uid, 'approved')),
       u.status !== 'blocked' && button('Block', () => changeUser(u.uid, 'blocked'), 'btn btn-quiet')))));

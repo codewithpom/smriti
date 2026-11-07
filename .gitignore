@@ -33,3 +33,17 @@ Thumbs.db
 .vscode/
 .idea/
 graphify-out/manifest.json
+
+# Launch drafts: not for the public repo
+launch/
+
+# Build output
+gallery/dist/
+gallery/dist-stage/
+
+# Local-only tooling and private deploy target
+.wrangler/
+.playwright-mcp/
+graphify-out/
+.graphify*
+gallery/deploy/mb27ndp.toml

@@ -1,7 +1,7 @@
 // Shared data store: fetches the JSON once, builds lookups, notifies listeners (open-question count).
 import { getToken } from './auth.js';
 import { loadMyVotes, loadProgress } from './votes.js';
-import { API } from './config.js';
+import { API, DEMO } from './config.js';
 
 export const store = {
   photos: [], people: [], graph: { nodes: [], edges: [] }, questions: [],
@@ -14,7 +14,7 @@ const subs = new Set();
 export const onChange = (fn) => { subs.add(fn); return () => subs.delete(fn); };
 export const emit = () => subs.forEach((f) => f());
 
-const REVIEW = location.hostname === '127.0.0.1'; // local review server: static data/ files, no sign-in
+const REVIEW = location.hostname === '127.0.0.1' || DEMO; // local review server and public demo: static data/ files, no sign-in
 
 // Signed in: GET /api/data/<name> with the bearer token. Review server: data/<name>.json.
 async function get(name, required) {
