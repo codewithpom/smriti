@@ -35,6 +35,14 @@ class SelectTest(unittest.TestCase):
         faces = {**FACES, "p2": [face("confirmed", "S2"), face("high", "S9", 1)]}
         self.assertEqual(filter_batch.select(CATALOG, faces, min_students=2)[0], ["p2"])
 
+    def test_staff_only_counts_without_student_filter(self):
+        catalog = [{"id": "p1"}]
+        faces = {"p1": [face("high", "STAFF_001")]}
+        self.assertEqual(filter_batch.select(catalog, faces)[0], ["p1"])
+        kept, counts = filter_batch.select(catalog, faces, student_ids={"S001"})
+        self.assertEqual(kept, [])
+        self.assertEqual(counts["no_match"], 1)
+
     def test_counts_add_up(self):
         _, c = filter_batch.select(CATALOG, FACES)
         self.assertEqual(c["kept"] + c["no_faces"] + c["no_match"], c["photos"])
@@ -60,6 +68,21 @@ class CopyTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
+    def test_cli_people_filters_staff(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name, value in (("catalog.json", [{"id": "p1", "file": "p1.jpg"}]),
+                                ("faces.json", {"p1": [face("confirmed", "STAFF_001")]}),
+                                ("people.json", {"STAFF_001": {"kind": "staff"}, "S001": {"kind": "student"}})):
+                (root / name).write_text(json.dumps(value))
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                filter_batch.main(["--catalog", str(root / "catalog.json"), "--faces", str(root / "faces.json"),
+                                   "--people", str(root / "people.json"), "--src", str(root), "--out", str(root / "out")])
+            self.assertIn("kept 0 of 1", output.getvalue())
+
     def test_cli_prints_counts_only_no_names_or_ids(self):
         import contextlib
         import io

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
 const projectId = 'demo-rkmv-gallery';
 let env;
@@ -86,4 +86,56 @@ test('admin needs a verified email', async () => {
   const unverified = env.authenticatedContext('admin', { email: 'codewithpom@gmail.com', email_verified: false }).firestore();
   await assertFails(updateDoc(doc(unverified, 'users/pending'), { status: 'approved' }));
   await assertFails(getDoc(doc(unverified, 'overrides/q')));
+});
+
+const extraPerson = () => ({ reg_no: '0001', name: 'Test One', batch: 'MB28', addedBy: 'approved', ts: serverTimestamp() });
+const student = () => auth('approved', 'rkmv1234@gmail.com');
+
+test('approved student creates and reads a new person, including an empty name', async () => {
+  await assertSucceeds(setDoc(doc(student(), 'people_extra/S0001'), extraPerson()));
+  await assertSucceeds(getDoc(doc(student(), 'people_extra/S0001')));
+  await assertSucceeds(getDoc(doc(admin(), 'people_extra/S0001')));
+  await assertSucceeds(setDoc(doc(student(), 'people_extra/S0002'), { ...extraPerson(), reg_no: '0002', name: '' }));
+});
+
+for (const [label, pid, patch] of [
+  ['wrong pid pattern', 'X0001', {}],
+  ['extra key', 'S0001', { extra: true }],
+  ['long name', 'S0001', { name: 'x'.repeat(61) }],
+  ['bad batch', 'S0001', { batch: 'MB2' }],
+  ['mismatched registration', 'S0001', { reg_no: '0002' }],
+  ['non-digit registration', 'S0001', { reg_no: 'oops' }],
+  ['numeric registration', 'S0001', { reg_no: 1 }],
+  ['non-string name', 'S0001', { name: null }],
+  ['other writer', 'S0001', { addedBy: 'someone-else' }],
+  ['fake timestamp', 'S0001', { ts: new Date(0) }],
+]) test(`new people reject ${label}`, async () => {
+  await assertFails(setDoc(doc(student(), 'people_extra/' + pid), { ...extraPerson(), ...patch }));
+});
+
+for (const state of ['pending', 'blocked', 'unauthenticated']) test(`${state} cannot create or read new people`, async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    if (state === 'blocked') await setDoc(doc(db, 'users/blocked'), { status: 'blocked' });
+    await setDoc(doc(db, 'people_extra/S0001'), extraPerson());
+  });
+  const db = state === 'unauthenticated' ? env.unauthenticatedContext().firestore() : auth(state, 'rkmv1234@gmail.com');
+  await assertFails(setDoc(doc(db, 'people_extra/S0002'), { ...extraPerson(), reg_no: '0002', addedBy: state }));
+  await assertFails(getDoc(doc(db, 'people_extra/S0001')));
+});
+
+test('only admin edits or deletes new people and updates retain shape and identity', async () => {
+  await assertSucceeds(setDoc(doc(student(), 'people_extra/S0001'), extraPerson()));
+  const ref = doc(student(), 'people_extra/S0001'), adminRef = doc(admin(), 'people_extra/S0001');
+  await assertFails(updateDoc(ref, { name: 'Test Two' }));
+  await assertFails(deleteDoc(ref));
+  await assertSucceeds(updateDoc(adminRef, { name: 'Test Two' }));
+  await assertFails(updateDoc(adminRef, { reg_no: '0002' }));
+  await assertFails(updateDoc(adminRef, { unexpected: true }));
+  await assertFails(updateDoc(adminRef, { name: 'x'.repeat(61) }));
+  await assertFails(updateDoc(adminRef, { batch: 'wrong' }));
+  await assertFails(updateDoc(adminRef, { addedBy: 'other' }));
+  await assertFails(updateDoc(adminRef, { ts: new Date(0) }));
+  await assertFails(setDoc(adminRef, { reg_no: '0001', name: 'Test Two', batch: 'MB28' }));
+  await assertSucceeds(deleteDoc(adminRef));
 });

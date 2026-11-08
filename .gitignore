@@ -1,4 +1,5 @@
 # --- Private data: student photos, names, face biometrics. Never commit. ---
+gallery/pipeline/out/
 /sorted/
 /gallery/img/
 /gallery/data/
@@ -47,3 +48,7 @@ gallery/dist-stage/
 graphify-out/
 .graphify*
 gallery/deploy/mb27ndp.toml
+
+# AdaFace weights (downloaded model files, not for the repo)
+gallery/pipeline/.models/
+dist-stage/

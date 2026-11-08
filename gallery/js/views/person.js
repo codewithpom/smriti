@@ -15,11 +15,14 @@ export function mount(root, ctx) {
   }
   const photos = store.photos.filter((x) => x.people.includes(p.id));
   store.list = photos;
-  const meta = [p.kind === 'staff' ? 'Staff' : 'Student', p.section || p.role, plural(photos.length, 'photo'),
+  const meta = [p.kind === 'staff' ? 'Staff' : 'Student', p.batch, p.section || p.role, plural(photos.length, 'photo'),
     p.community != null && `Friend group ${Number(p.community) + 1}`].filter(Boolean).join(' · ');
 
-  root.append(el('div', { class: 'person-head' }, avatar(p, 'avatar-lg'),
-    el('div', {}, el('h1', { text: p.name }), el('p', { text: meta }))));
+  const portrait = avatar(p, 'avatar-lg gp-person-avatar');
+  portrait.setAttribute('width', '120');
+  portrait.setAttribute('height', '120');
+  root.append(el('header', { class: 'person-head gp-person-head' }, portrait,
+    el('div', { class: 'gp-person-heading' }, el('h1', { text: p.name }), el('p', { class: 'muted', text: meta }))));
 
   const friends = (p.friends || []).filter((f) => store.peopleById.has(f.id)).sort((a, b) => b.weight - a.weight).slice(0, 10);
   if (friends.length) {

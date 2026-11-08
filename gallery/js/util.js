@@ -53,8 +53,8 @@ export const ls = {
 export async function postJSON(path, body) {
   try {
     const r = await fetch(API + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) return { ok: false };
     const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, data };
     return data && data.ok ? { ok: true, data } : { ok: false, data };
   } catch { return { ok: false }; }
 }
@@ -72,7 +72,12 @@ export function icon(d) {
 }
 
 export function avatar(person, cls = '') {
-  return el('img', { class: 'avatar ' + cls, src: imgUrl(person.avatar), alt: '', loading: 'lazy', decoding: 'async' });
+  const initials = (person.name || '').trim().split(/\s+/).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || '?';
+  const fallback = () => el('span', { class: 'avatar ' + cls, 'aria-hidden': 'true', style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'var(--raised)', color: 'var(--muted)', borderRadius: '50%' } }, initials);
+  if (!person.avatar) return fallback();
+  const image = el('img', { class: 'avatar ' + cls, src: imgUrl(person.avatar), alt: '', loading: 'lazy', decoding: 'async' });
+  image.addEventListener('error', () => image.replaceWith(fallback()), { once: true });
+  return image;
 }
 
 // Square crop around a normalised bbox (padded 25% each side), drawn from the web image with CSS only.

@@ -14,6 +14,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import people_store
+
 GALLERY = Path(__file__).resolve().parent.parent
 DATA = GALLERY / "data"
 PORT = 8090
@@ -88,13 +90,23 @@ def rebuild():
     return 200, {"ok": True}
 
 
+def addperson(body):
+    try:
+        if not isinstance(body, dict):
+            raise ValueError("body must be an object")
+        person = people_store.add_person(DATA, body.get("reg_no"), body.get("name", ""), body.get("batch"))
+        return 200, {"ok": True, "person": person}
+    except ValueError as error:
+        return 400, {"ok": False, "error": str(error)}
+
+
 class H(SimpleHTTPRequestHandler):
     def do_POST(self):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
             with lock:
-                code, out = {"/api/answer": lambda: answer(body), "/api/undo": undo, "/api/rebuild": rebuild}.get(
+                code, out = {"/api/addperson": lambda: addperson(body), "/api/answer": lambda: answer(body), "/api/undo": undo, "/api/rebuild": rebuild}.get(
                     self.path, lambda: (404, {"ok": False}))()
         except Exception as e:  # report, never crash the server
             code, out = 500, {"ok": False, "error": str(e)}

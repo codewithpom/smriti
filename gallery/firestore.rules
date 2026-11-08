@@ -56,6 +56,28 @@ service cloud.firestore {
         && request.resource.data.ts == request.time;
       allow delete: if signedIn() && approved() && resource.data.uid == request.auth.uid;
     }
+    match /people_extra/{pid} {
+      function shape() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['reg_no', 'name', 'batch', 'addedBy', 'ts'])
+          && d.keys().hasAll(['reg_no', 'name', 'batch', 'addedBy', 'ts'])
+          && pid.matches('^S[0-9]{4,6}$')
+          && d.reg_no is string && d.reg_no.matches('^[0-9]{4,6}$')
+          && pid == 'S' + d.reg_no
+          && d.name is string && d.name.size() <= 60
+          && d.batch is string && d.batch.matches('^MB[0-9]{2}$')
+          && d.addedBy is string && d.ts is timestamp;
+      }
+      allow read: if admin() || approved();
+      allow create: if approved() && shape()
+        && request.resource.data.addedBy == request.auth.uid
+        && request.resource.data.ts == request.time;
+      allow update: if admin() && shape()
+        && request.resource.data.reg_no == resource.data.reg_no
+        && request.resource.data.addedBy == resource.data.addedBy
+        && request.resource.data.ts == resource.data.ts;
+      allow delete: if admin();
+    }
     match /meta/progress {
       allow read: if admin() || approved();
       allow write: if admin();

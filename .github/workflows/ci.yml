@@ -28,8 +28,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pillow
-      - run: python -m unittest test_tally test_obfuscate test_filter_batch
+      - run: pip install pillow numpy
+      - run: python -m unittest test_tally test_obfuscate test_filter_batch test_name_sheet test_apply_cluster_names test_fetch_students test_people_store test_import_extra_people test_import_names_csv test_eval_match test_eval_groups test_faces_decide test_aliases test_aliases_more test_new_person test_new_staff test_new_student_noreg
         working-directory: gallery/pipeline
       - run: python gallery/demo/check_demo.py
 

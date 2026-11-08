@@ -29,17 +29,72 @@ export function mount(root, ctx) {
   function picker(onPick) {
     const input = el('input', { type: 'search', class: 'input', placeholder: 'Find someone else', 'aria-label': 'Find someone else', autocomplete: 'off' });
     const list = el('ul', { class: 'plain pick-list' });
-    input.addEventListener('input', () => {
+    const refresh = () => {
       const t = input.value.trim().toLowerCase();
       list.replaceChildren();
       if (!t) return;
-      const hits = store.people.filter((p) => p.name.toLowerCase().includes(t)).slice(0, 8);
+      const hits = store.people.filter((p) => p.name.toLowerCase().includes(t) || String(p.reg_no || '').includes(t)).slice(0, 8);
       list.append(...(hits.length ? hits.map((p) => el('li', {},
         el('button', { type: 'button', class: 'row-btn', onclick: () => onPick(p.id) },
           avatar(p, 'avatar-sm'), el('span', { text: p.name }), el('small', { class: 'muted', text: p.section || p.role || '' }))))
         : [el('li', { class: 'muted small', text: 'No one by that name.' })]));
+    };
+    input.addEventListener('input', refresh);
+    const picker = el('div', { class: 'picker' }, input, list);
+    if (DEMO) return picker;
+    const reg = el('input', { class: 'input', name: 'reg_no', required: true, inputmode: 'numeric', pattern: '[0-9]{4,6}' });
+    const name = el('input', { class: 'input', name: 'name', maxlength: '60' });
+    const batches = [...new Set(store.people.map((p) => p.batch).filter(Boolean))].sort();
+    if (!batches.length) batches.push('MB28');
+    const batch = el('select', { class: 'input', name: 'batch' }, batches.map((b) => el('option', { value: b, selected: b === (batches.includes('MB28') ? 'MB28' : batches[0]) }, b)));
+    const status = el('p', { class: 'muted small', 'aria-live': 'polite', role: 'status' });
+    const submit = el('button', { type: 'submit', class: 'btn btn-primary', text: 'Add and use' });
+    const form = el('form', {},
+      el('label', {}, 'Reg number', reg),
+      el('label', {}, 'Name (optional)', name, el('span', { class: 'muted small', text: 'you can leave this empty, names come later' })),
+      el('label', {}, 'Batch', batch), submit, status);
+    for (const field of [reg, name, batch, submit]) field.style.minHeight = '44px';
+    const question = store.questions[0];
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (busy || submit.disabled || !form.reportValidity()) return;
+      const reg_no = reg.value.trim(), personName = name.value.trim(), selectedBatch = batch.value;
+      if (!/^[0-9]{4,6}$/.test(reg_no) || personName.length > 60 || !/^MB[0-9]{2}$/.test(selectedBatch)) {
+        status.textContent = 'Use 4-6 digits, a name of at most 60 characters, and a batch such as MB28.'; return;
+      }
+      const pid = 'S' + reg_no;
+      if (store.people.some((p) => p.id === pid)) { onPick(pid); return; }
+      submit.disabled = true;
+      busy = true;
+      status.textContent = 'Adding person...';
+      try {
+        let p;
+        if (LOCAL) {
+          const result = await postJSON('/api/addperson', { reg_no, name: personName, batch: selectedBatch });
+          if (!result.ok) throw new Error(result.data?.error || 'Could not add this person. Try again.');
+          p = result.data.person;
+          if (!p || p.id !== pid) throw new Error('The server returned an invalid person.');
+        } else {
+          const { getApp } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js');
+          const { getAuth } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+          const { getFirestore, doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+          const user = getAuth(getApp()).currentUser;
+          if (!user) throw new Error('Please sign in again.');
+          await setDoc(doc(getFirestore(getApp()), 'people_extra', pid), { reg_no, name: personName, batch: selectedBatch, addedBy: user.uid, ts: serverTimestamp() });
+          p = { id: pid, kind: 'student', reg_no, name: personName, batch: selectedBatch, photos: 0, avatar: null, extra: true };
+        }
+        p = { ...p, name: p.name || 'Reg ' + reg_no, section: p.section || null };
+        store.people.push(p);
+        store.peopleById.set(pid, p);
+        input.value = reg_no;
+        refresh();
+        busy = false;
+        if (store.questions[0] === question) await onPick(pid);
+      } catch (error) { status.textContent = error.message || 'Could not add this person. Try again.'; }
+      finally { busy = false; submit.disabled = false; }
     });
-    return el('div', { class: 'picker' }, input, list);
+    picker.append(el('details', { class: 'disclosure' }, el('summary', { style: { minHeight: '44px' } }, 'Not in the list? Add someone new'), form));
+    return picker;
   }
 
   function candButtons(cands, pick, off = 0) {

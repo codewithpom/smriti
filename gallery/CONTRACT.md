@@ -18,6 +18,11 @@ Plan: kept outside the repo. Static site in `gallery/` (vanilla ES modules, no b
 - `js/util.js` `postJSON(path, body)` posts to `API="/api"`; `review.js` calls `/answer`, `/undo`, `/rebuild`.
 - People ids: students look like `S<regno>` (e.g. `S1001`); staff like `STAFF_074`. Assumption: regno = digits after `S`. The roster script must verify against `people.json` and report mismatches instead of guessing.
 
+## People added before names are known
+- People may carry `batch` (for example `MB27` or `MB28`); empty names display as `Reg <reg_no>`. Batch segments fall back to Students/Staff in the demo.
+- Review can add a student by registration number and batch, then use that pid through the usual answer path. Names are optional; supply names later via CSV in the pipeline. Admin's New people tab edits names and downloads `extra_people.json` (`[{reg_no,name,batch}]`) for `pipeline/import_extra_people.py`.
+- Local review only: `POST API + '/api/addperson'`, JSON `{reg_no,name?,batch?}`. Success `{ok:true,person:{id,name,batch,kind:"student",reg_no,photos:0,avatar:null}}`; HTTP 400 `{ok:false,error}` on failure. Crowd review writes `people_extra` instead; demo hides this control.
+
 ## Firebase (Spark plan: Auth + Firestore only; NO Storage, NO Functions)
 Config: `js/firebase-config.js` exports `firebaseConfig` with placeholder values (`YOUR_API_KEY` etc.) and `ADMIN_EMAILS` is NOT in the browser; admins are defined in `firestore.rules` and Function env var `ADMIN_EMAILS`.
 Use the modular Firebase JS SDK from `https://www.gstatic.com/firebasejs/10.14.1/` (ESM URLs), pinned.
@@ -30,6 +35,7 @@ Valid student: token `email` matches `rkmv<digits>@gmail.com`, `email_verified =
 - `users/{uid}`: `{email, regno, pid, status, createdAt}`. Create: own uid, valid student, `status == 'approved'` (no waiting room; roster membership is the gate), regno/pid match roster. Read: own doc or admin. Update: admin only (sets `status` to `approved|blocked`). No delete.
 - `votes/{qid}__{uid}`: `{qid, qtype, uid, regno, answer, ts}`. Create/update/delete: only own uid, `users/{uid}.status == 'approved'`, doc id equals `qid + '__' + uid`, `answer` is a non-empty string <= 64 chars, `ts == request.time`. Read: own votes or admin.
 - `meta/progress`: `{settled:{qid:true}, disputed:[qid], updatedAt}`. Read: approved users or admin. Write: admin only. Single doc on purpose (read budget).
+- `people_extra/{pid}`: `{reg_no, name, batch, addedBy, ts}`. `pid = "S" + reg_no` (4-6 digits); name may be empty, at most 60 characters; batch matches `MB` + two digits. Read: approved users or admin. Create: approved writer's uid in `addedBy`, server timestamp, only these five fields. Update/delete: admin only; updates preserve identity, writer, timestamp and shape. Loaded once per signed-in session, merged behind static people.
 - Everything else denied.
 - Admin = email in a list inside `firestore.rules` (currently `codewithpom@gmail.com`; add more maintainers there and in the `ADMIN_EMAILS` Pages secret).
 

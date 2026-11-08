@@ -1,6 +1,7 @@
 import { el, label, plural, debounce, fmtDate } from '../util.js';
 import { fromQuery, hashFor, isActive, makePredicate, empty, KEYS } from '../filters.js';
 import { renderGrid } from '../grid.js';
+import { peopleStrip } from '../people-strip.js';
 
 const TAGS_SHOWN = 12;
 
@@ -111,13 +112,16 @@ export function mount(root, ctx) {
     const g = el('div');
     host.replaceChildren(g);
     grid = renderGrid(g, filtered);
+    ctx.setList(grid.photos);
   }
 
   function commit(replace = false) { ctx.setHash(hashFor(state), replace); sync(); results(); }
   function clearAll() { state = empty(); search.value = ''; commit(); search.focus(); }
 
+  const strip = store.people.filter((p) => p.photos > 0).length >= 3 ? peopleStrip(store) : null;
   root.append(
     el('div', { class: 'page-head' }, el('div', {}, el('h1', { text: 'Gallery' }), count)),
+    ...(strip ? [strip] : []),
     el('div', { class: 'toolbar' },
       el('div', { class: 'toolbar-top' }, el('div', { class: 'search' }, search), toggleBtn, clearBtn),
       groups),

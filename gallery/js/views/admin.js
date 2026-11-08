@@ -1,8 +1,8 @@
 ﻿import { el } from '../util.js';
 import { getToken, isAdmin, currentProfile } from '../auth.js';
-import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers } from '../admin-data.js';
+import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers, listExtraPeople, updateExtraPerson, deleteExtraPerson } from '../admin-data.js';
 
-const TABS = ['Users', 'Disputes', 'Uploads', 'Stats', 'Export'];
+const TABS = ['Users', 'Disputes', 'Uploads', 'Stats', 'New people', 'Export'];
 const api = async (path, options = {}) => {
   const token = await getToken();
   if (!token) throw new Error('Please sign in again.');
@@ -54,6 +54,7 @@ export function mount(root) {
       if (tab === 'Uploads') await uploads();
       else if (tab === 'Users') await users();
       else if (tab === 'Disputes') await disputes();
+      else if (tab === 'New people') await newPeople();
       else if (tab === 'Stats') await stats();
       else await exportPanel();
       status.textContent = '';
@@ -129,6 +130,32 @@ export function mount(root) {
     votes.forEach((vote) => counts.set(vote.uid, (counts.get(vote.uid) || 0) + 1));
     body.append(el('h2', { text: 'Votes per student' }), el('ul', { class: 'plain admin-list' }, list.map((u) => el('li', {},
       el('span', { class: 'admin-main', text: u.email || u.uid }), el('span', { class: 'pill', text: String(counts.get(u.uid) || 0) })))))
+  }
+  async function newPeople() {
+    const list = (await listExtraPeople()).sort((a, b) => a.reg_no.localeCompare(b.reg_no));
+    body.append(el('h2', { text: 'New people' }));
+    body.append(button('Download for the pipeline', () => {
+      const data = list.map(({ reg_no, name, batch }) => ({ reg_no, name, batch }));
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const link = el('a', { href: url, download: 'extra_people.json' });
+      body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }));
+    for (const p of list) {
+      const name = el('input', { class: 'input', maxlength: '60', value: p.name, 'aria-label': `Name for ${p.reg_no}` });
+      let armed = false;
+      const remove = button('Delete', async () => {
+        if (!armed) { armed = true; remove.textContent = 'Click again to delete'; return; }
+        try { await deleteExtraPerson(p.id); await render(); }
+        catch (e) { status.textContent = e.message; }
+      }, 'btn btn-quiet');
+      body.append(el('article', { class: 'admin-row' }, el('strong', { text: p.reg_no }), name,
+        button('Save', async () => {
+          try { await updateExtraPerson(p.id, name.value); p.name = name.value; status.textContent = 'Name saved.'; }
+          catch (e) { status.textContent = e.message; }
+        }), el('span', { class: 'muted', text: p.batch }), remove));
+    }
+    if (!list.length) body.append(el('p', { class: 'muted', text: 'No new people.' }));
   }
   async function exportPanel() {
     const token = await getToken();

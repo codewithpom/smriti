@@ -1,7 +1,7 @@
 import { getApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc, startAfter, writeBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc, startAfter, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
 const db = getFirestore(getApp());
@@ -77,4 +77,18 @@ export function saveOverride(qid, answer) {
 export async function listOverrides() {
   const snapshot = await getDocs(collection(db, 'overrides'));
   return Object.fromEntries(snapshot.docs.map((item) => [item.id, item.data().answer]));
+}
+
+export async function listExtraPeople() {
+  const snapshot = await getDocs(collection(db, 'people_extra'));
+  return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+}
+
+export function updateExtraPerson(pid, name) {
+  if (typeof name !== 'string' || name.length > 60) throw new Error('Names must be at most 60 characters.');
+  return setDoc(doc(db, 'people_extra', pid), { name }, { merge: true });
+}
+
+export function deleteExtraPerson(pid) {
+  return deleteDoc(doc(db, 'people_extra', pid));
 }

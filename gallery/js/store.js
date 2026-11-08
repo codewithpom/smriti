@@ -1,5 +1,5 @@
 // Shared data store: fetches the JSON once, builds lookups, notifies listeners (open-question count).
-import { getToken } from './auth.js';
+import { getToken, currentProfile, onUser } from './auth.js';
 import { loadMyVotes, loadProgress } from './votes.js';
 import { API, DEMO } from './config.js';
 
@@ -59,11 +59,31 @@ function index() {
   s.list = s.photos;
 }
 
+let extraRead = null;
+// One collection read per signed-in session, including failed attempts and forced data reloads.
+onUser(() => { extraRead = null; loading = null; });
+async function extraPeople() {
+  if (REVIEW) return [];
+  if (!extraRead) extraRead = (async () => {
+    if ((await currentProfile())?.status !== 'approved') return [];
+    const { getApp } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js');
+    const { collection, getDocs, getFirestore } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+    const snapshot = await getDocs(collection(getFirestore(getApp()), 'people_extra'));
+    return snapshot.docs.map((item) => {
+      const p = item.data();
+      return { id: item.id, kind: 'student', name: p.name || 'Reg ' + p.reg_no, reg_no: p.reg_no, batch: p.batch, section: null, photos: 0, avatar: null, extra: true };
+    });
+  })().catch(() => []);
+  return extraRead;
+}
+
 let loading = null;
 async function doLoad() {
   const [photos, people, graph, questions] = await Promise.all([
     get('photos', true), get('people', true), get('graph', false), get('questions', false),
   ]);
+  const ids = new Set(people.map((p) => p.id));
+  people.push(...(await extraPeople()).filter((p) => !ids.has(p.id)));
   let open = questions || [];
   if (!REVIEW && await getToken()) {
     // Hide questions this student already answered or that are settled (own votes + one progress read).

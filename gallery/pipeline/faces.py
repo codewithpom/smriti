@@ -9,6 +9,7 @@ import argparse
 import gc
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -30,23 +31,66 @@ T_CAND = 0.28            # below this a face is unknown; between is a question c
 CLUSTER_DIST = 0.55      # cosine distance for grouping unknown faces
 
 
+def staff_aliases(people_raw):
+    """Map duplicate staff ids to the role-bearing, then lowest-id entry."""
+    groups = {}
+    for person in people_raw:
+        name = re.sub(r"\bshri\b", "sri", re.sub(r"\([^)]*\)", "", person["name"].lower()))
+        key = "".join(c for c in name if c.isalpha())
+        groups.setdefault(key, []).append(person)
+    aliases = {}
+    for group in groups.values():
+        canonical = min(group, key=lambda p: (not bool(p.get("role")), p["id"]))
+        aliases.update({p["id"]: canonical["id"] for p in group if p["id"] != canonical["id"]})
+    return aliases
+
+
+def merge_aliases(auto, manual):
+    """Combine the name rule with hand-written merges and follow chains (a -> b -> c becomes a -> c)."""
+    out = {**auto, **manual}
+    for dup in out:
+        seen = {dup}
+        while out[dup] in out and out[dup] not in seen:
+            seen.add(out[dup]); out[dup] = out[out[dup]]
+    return {d: c for d, c in out.items() if d != c}
+
+
+def load_aliases(ids=None):
+    ids = ids or json.loads((HELLO / "identities.json").read_text(encoding="utf-8"))
+    manual = DATA / "manual_aliases.json"   # {"STAFF_195": "STAFF_082"}: merges the name rule cannot see, e.g. spelling variants
+    return merge_aliases(staff_aliases(ids["staff"]), json.loads(manual.read_text(encoding="utf-8")) if manual.exists() else {})
+
+
 def load_people():
     ids = json.loads((HELLO / "identities.json").read_text(encoding="utf-8"))
     people = {}
     for s in ids["students"]:
         pid = f"S{s['reg_no']}"
-        people[pid] = {"id": pid, "kind": "student", "name": s["name"], "reg_no": s["reg_no"],
+        people[pid] = {"id": pid, "kind": "student", "name": s["name"], "reg_no": s["reg_no"], "batch": "MB27",
                        "section": s.get("section"), "portrait_src": HELLO / "reference_faces" / "students" / f"{s['reg_no']}.jpg"}
     for t in ids["staff"]:
         people[t["id"]] = {"id": t["id"], "kind": "staff", "name": t["name"], "role": t.get("role"),
                            "portrait_src": next((HELLO / "reference_faces" / "staff").glob(t["id"] + "_*.jpg"), None)}
+    extra_staff = DATA / "extra_staff.json"   # staff added from the naming sheet: no reg number, no portrait
+    if extra_staff.exists():
+        for t in json.loads(extra_staff.read_text(encoding="utf-8")):
+            people.setdefault(t["id"], {"id": t["id"], "kind": "staff", "name": t["name"], "role": t.get("role") or "", "portrait_src": None})
+    noreg = DATA / "extra_students_noreg.json"   # students added from the naming sheet before their reg number is known
+    if noreg.exists():
+        for s in json.loads(noreg.read_text(encoding="utf-8")):
+            people.setdefault(s["id"], {"id": s["id"], "kind": "student", "name": s["name"], "reg_no": "", "batch": s.get("batch") or "MB28",
+                                        "section": None, "portrait_src": None})
     extra = DATA / "extra_students.json"   # students fetched later by reg number (name/section only, no marks)
     if extra.exists():
         for s in json.loads(extra.read_text(encoding="utf-8")):
             pid = f"S{s['reg_no']}"
             own = DATA / "extra_refs" / f"{s['reg_no']}.jpg"
-            people[pid] = {"id": pid, "kind": "student", "name": s["name"], "reg_no": s["reg_no"], "section": s.get("section"),
+            old = people.get(pid, {})   # no name yet (CSV comes later): show the reg number
+            people[pid] = {"id": pid, "kind": "student", "name": s.get("name") or old.get("name") or f"Reg {s['reg_no']}",
+                           "reg_no": s["reg_no"], "batch": s.get("batch") or old.get("batch") or "MB27", "section": s.get("section"),
                            "portrait_src": own if own.exists() else people.get(pid, {}).get("portrait_src")}
+    for pid in load_aliases(ids):   # duplicates and hand-linked people disappear last, whichever file they came from
+        people.pop(pid, None)
     return people
 
 
@@ -118,7 +162,7 @@ def extract():
             cf.write_text(json.dumps([{"b": [float(v) for v in f.bbox], "w": W, "h": H, "d": float(f.det_score),
                                        "v": f.normed_embedding.tolist()} for f in faces]))
         found = []
-        for f in json.loads(cf.read_text()):
+        for f in json.loads(cf.read_text(encoding="utf-8")):
             x1, y1, x2, y2 = f["b"]; W, H = f["w"], f["h"]
             if f["d"] < MIN_DET:
                 continue
@@ -139,10 +183,10 @@ def fixrefs():
     """Retry portraits where extract found no face: upscale small ones and accept weaker detections."""
     app = get_app(); app.det_model.det_thresh = 0.3
     people = load_people()
-    ids = json.loads((DATA / "ref_ids.json").read_text()); emb = list(np.load(DATA / "ref_emb.npy"))
+    ids = json.loads((DATA / "ref_ids.json").read_text(encoding="utf-8")); emb = list(np.load(DATA / "ref_emb.npy"))
     added = []
     failed_path = DATA / "ref_failed.json"   # portraits that never yield a face: skipped next time (delete file to retry)
-    failed = set(json.loads(failed_path.read_text())) if failed_path.exists() else set()
+    failed = set(json.loads(failed_path.read_text(encoding="utf-8"))) if failed_path.exists() else set()
     for pid, p in people.items():
         src = p["portrait_src"]
         if pid in ids or pid in failed or not src or not Path(src).exists():
@@ -166,20 +210,57 @@ def fixrefs():
                 im = ImageOps.exif_transpose(im).convert("RGB"); im.thumbnail((240, 240)); im.save(out / f"{pid}.webp", quality=80)
     (DATA / "people_meta.json").write_text(json.dumps(
         {pid: {k: v for k, v in p.items() if k != "portrait_src"} for pid, p in people.items()}, ensure_ascii=False))
+    (DATA / "aliases.json").write_text(json.dumps(load_aliases(), sort_keys=True), encoding="utf-8")
     np.save(DATA / "ref_emb.npy", np.array(emb, dtype=np.float32)); (DATA / "ref_ids.json").write_text(json.dumps(ids))
     print(f"added {len(added)} references, now {len(ids)}/{len(people)}; still missing {sum(1 for p in people if p not in ids)}")
+
+
+def rank_persons(bank_e, bank_p, e, agg="max"):
+    """Rank people by maximum or mean top-three cosine similarity."""
+    if agg not in ("max", "top3"):
+        raise ValueError("unknown aggregation")
+    bank_p = np.asarray(bank_p)
+    if not len(bank_p):
+        return []
+    sims = np.asarray(bank_e) @ e
+    per = {}
+    for p in sorted(set(bank_p)):
+        scores = sims[bank_p == p]
+        per[p] = float(scores.max() if agg == "max" else np.sort(scores)[-3:].mean())
+    return sorted(per.items(), key=lambda kv: -kv[1])
+
+
+def decide(ranked, px, t_high=T_HIGH, t_margin=T_MARGIN, t_cand=T_CAND, min_px=MIN_FACE_PX):
+    """Return the automatic person, rounded score, and status."""
+    if px < min_px:
+        return None, 0.0, "tiny"
+    if not ranked:
+        return None, 0.0, "unknown"
+    best = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else 0.0
+    if best[1] >= t_high and best[1] - second >= t_margin:
+        return best[0], round(best[1], 3), "high"
+    if best[1] >= t_cand:
+        return None, round(best[1], 3), "candidate"
+    return None, 0.0, "unknown"
 
 
 def match():
     from scipy.cluster.hierarchy import fcluster, linkage
 
-    raw = json.loads((DATA / "faces_raw.json").read_text())
+    raw = json.loads((DATA / "faces_raw.json").read_text(encoding="utf-8"))
     emb = np.load(DATA / "face_emb.npy")
     ref_emb = np.load(DATA / "ref_emb.npy")
-    ref_ids = json.loads((DATA / "ref_ids.json").read_text())
+    ref_ids = json.loads((DATA / "ref_ids.json").read_text(encoding="utf-8"))
     corr_path = DATA / "corrections.json"
-    corr = json.loads(corr_path.read_text()) if corr_path.exists() else {}
+    corr = json.loads(corr_path.read_text(encoding="utf-8")) if corr_path.exists() else {}
     face_fix = corr.get("faces", {})   # "photoid:index" -> person id | "none"
+
+    aliases_path = DATA / "aliases.json"
+    if aliases_path.exists():
+        aliases = json.loads(aliases_path.read_text(encoding="utf-8"))
+        ref_ids = [aliases.get(pid, pid) for pid in ref_ids]
+        face_fix = {key: aliases.get(pid, pid) if pid != "none" else pid for key, pid in face_fix.items()}
 
     # reference bank = portraits + faces the user confirmed (the learning loop)
     bank_e, bank_p = list(ref_emb), list(ref_ids)
@@ -189,7 +270,6 @@ def match():
             if pid and pid != "none":
                 bank_e.append(emb[f["e"]]); bank_p.append(pid)
     bank_e = np.array(bank_e); bank_p = np.array(bank_p)
-    persons = sorted(set(bank_p))
 
     out, unknown_idx = {}, []
     for row in raw:
@@ -198,22 +278,15 @@ def match():
             key = f"{row['photo']}:{i}"
             r = {"i": i, "bbox": f["bbox"], "person": None, "score": 0.0, "status": "unknown", "cands": [], "cluster": None}
             fixed = face_fix.get(key)
-            sims = bank_e @ emb[f["e"]]
-            per = {p: float(sims[bank_p == p].max()) for p in persons}
-            ranked = sorted(per.items(), key=lambda kv: -kv[1])
+            ranked = rank_persons(bank_e, bank_p, emb[f["e"]])
             r["cands"] = [[p, round(s, 3)] for p, s in ranked[:3]]
             if fixed == "none":
                 r["status"] = "rejected"
             elif fixed:
                 r.update(person=fixed, status="confirmed", score=1.0)
-            elif f["px"] < MIN_FACE_PX:
-                r["status"] = "tiny"
             else:
-                best, second = ranked[0], ranked[1] if len(ranked) > 1 else (None, 0.0)
-                if best[1] >= T_HIGH and best[1] - second[1] >= T_MARGIN:
-                    r.update(person=best[0], score=round(best[1], 3), status="high")
-                elif best[1] >= T_CAND:
-                    r.update(score=round(best[1], 3), status="candidate")
+                person, score, status = decide(ranked, f["px"])
+                r.update(person=person, score=score, status=status)
             res.append(r)
         # a person appears once per photo: keep the strongest claim, demote the rest to candidates
         seen = {}
