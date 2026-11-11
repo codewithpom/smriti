@@ -51,3 +51,29 @@ jobs:
           python gallery/pipeline/ci_scan.py --publish-dir "$RUNNER_TEMP/recovered-site"
           cd "$RUNNER_TEMP/recovered-site"
           npx --yes wrangler@4.159.0 pages deploy --branch main --commit-dirty=true
+      - name: Verify recovery bundle and activate gallery data
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          backup = Path(os.environ["RUNNER_TEMP"]) / "recovery-backup"
+          data = backup / "data"
+          site_data = backup / "site-data"
+          report = json.loads((data / "recovery_report.json").read_text(encoding="utf-8"))
+          for key in ("photos", "people", "preserved_labels"):
+              if type(report.get(key)) is not int or report[key] < 0:
+                  raise SystemExit("recovery verification report is invalid")
+          if report["photos"] == 0 or report["people"] == 0:
+              raise SystemExit("recovery verification report is incomplete")
+          original = json.loads((data / "photos.json").read_text(encoding="utf-8"))
+          deployed = json.loads((site_data / "photos.json").read_text(encoding="utf-8"))
+          if not isinstance(original, list) or not isinstance(deployed, list):
+              raise SystemExit("recovered photo data is invalid")
+          if len(original) != report["photos"] or len(deployed) != report["photos"]:
+              raise SystemExit("recovered photo count does not match the verified archive")
+          for name in ("people", "graph", "questions", "clusters"):
+              json.loads((site_data / f"{name}.json").read_text(encoding="utf-8"))
+          PY
+          python gallery/pipeline/recover_ci.py --activate "$RUNNER_TEMP/recovery-backup/site-data"
