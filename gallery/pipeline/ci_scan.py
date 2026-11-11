@@ -240,6 +240,13 @@ def scan(args, remote=None):
                     file.write("publish=false\n")
             return 0
         _status(remote, "running", stage, 1, steps, started, counts)
+        # A legacy deployment can have served JSON without the private pipeline
+        # state. Building from an empty or partial catalog would erase its archive.
+        published = remote.get_json("data/photos.json", [])
+        catalog = remote.get_json("state/catalog.json", [])
+        if {photo["id"] for photo in published} - {entry["id"] for entry in catalog}:
+            _safe_print("scan blocked: seed the complete private catalog before scanning an existing archive")
+            raise RuntimeError("seed the complete private catalog before scanning an existing archive")
         _pull(remote)
         if args.eval:
             import eval_match

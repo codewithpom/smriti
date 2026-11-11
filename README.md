@@ -147,6 +147,8 @@ After the first deploy, the `scan` workflow takes over processing and publishing
 
 A run costs nothing when nothing is pending (the daily cron exits in seconds). Uploads in a burst share one queued run.
 
+Seed the complete private catalog before enabling ingest on an existing gallery. The scanner refuses to rebuild if any published photo is absent from the stored catalog, preserving the live archive and queued uploads until seeding is complete. The served JSON alone cannot replace the original pipeline state and face embeddings.
+
 The `rkmv<number>@gmail.com` email pattern belongs to the school this was built for. Change it in `firestore.rules`, `gallery/js/auth.js` and `gallery/functions/_shared/auth.js` for your own deployment.
 
 ### Free-tier budget

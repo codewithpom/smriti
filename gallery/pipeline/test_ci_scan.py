@@ -131,6 +131,26 @@ class ScanTest(unittest.TestCase):
         self.assertIn((key, len(self.new.read_bytes())), self.local.ls("pending/"))
         self.assertEqual(self.local.get_json("status/scan.json")["state"], "failed")
 
+    def test_unseeded_archive_is_never_replaced(self):
+        published = [{"id": "p00000000"}, {"id": "p00000001"}]
+        self.local.put_json("data/photos.json", published)
+        args = type("Args", (), {"eval": False, "recluster": False, "reembed": False, "fetch_facebook": False})()
+        original_catalog = self.local.get("state/catalog.json")
+        for catalog in (None, b"[]", json.dumps([{"id": "p00000000"}]).encode()):
+            with self.subTest(catalog=catalog):
+                if catalog is None:
+                    self.local.delete(["state/catalog.json"])
+                else:
+                    self.local.put("state/catalog.json", catalog)
+                with patch.object(ci_scan, "_pull") as pull:
+                    self.assertEqual(ci_scan.scan(args, self.local), 1)
+                pull.assert_not_called()
+                self.assertEqual(self.local.get_json("data/photos.json"), published)
+                self.assertEqual(len(self.local.ls("pending/")), 3)
+                self.assertFalse((self.root / "output").exists())
+        self.local.put("state/catalog.json", original_catalog)
+        self.assertEqual(ci_scan.scan(args, self.local), 0)
+
     def test_reject_removes_pending_photo_and_assets(self):
         key = "pending/user-a/reject.jpg"
         self.local.put(key, self.new.read_bytes())
