@@ -1,0 +1,1 @@
+{"chunk_count":13,"chunk_size":20971520,"cipher":"AES-256-GCM","format":"smriti-encrypted-backup-v1","kdf":{"n":32768,"name":"scrypt","p":1,"r":8,"salt":"6503bf6037571336d8936d57f5bef44d"},"total_size":263102560}
