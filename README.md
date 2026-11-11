@@ -149,7 +149,7 @@ Photos of minors and face data are the sensitive part, so the rules are strict a
 | A student unblocks or promotes themselves | `users` can only be created for a roster member through Google sign-in, with a server timestamp; only an admin can change `status` (tested) |
 | Students admitted without review | Approval mode in `meta/config`: `auto` (default) approves a roster student on first sign-in; `admin` keeps new users `pending` until an admin approves them (tested) |
 | Vote tampering or ballot stuffing | One doc per `{question}__{uid}`; rules force own uid, approved status, an exact payload shape, answer format and a matching question type. An update must wait 10 seconds after the stored vote, which caps update loops (tested) |
-| Junk entries in extra people | `people_extra` can only be added for a registration number that is in the roster, so the collection stays roster-sized (every student reads it) (tested) |
+| Junk entries in extra people | `people_extra` can only be added for a registration number that is in the roster, so the collection stays roster-sized (every student reads it). New entries stay `pending` until an admin approves them, and only the creator and admins can read pending entries (tested) |
 | Quota exhaustion by one account | Id format and length limits, 50 pending uploads per student, 10 MB streamed upload cap |
 | Forged tokens | Functions verify Firebase ID tokens with WebCrypto against Google's keys: RS256 pinned, `aud`, `iss`, `exp`, `sub` and `email_verified` checked |
 | Student names served publicly | Data JSON lives in KV and is served only by an authenticated Function, never as a static file |

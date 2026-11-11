@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const projectId = 'demo-rkmv-gallery';
 let env;
@@ -127,13 +127,16 @@ test('votes need every key and a short plain answer', async () => {
   await assertFails(setDoc(doc(db, 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), answer: 'S'.repeat(65) }));
   await assertSucceeds(setDoc(doc(db, 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), answer: 'S'.repeat(64) }));
 });
+test('votes reject an extra key', async () => {
+  await assertFails(setDoc(doc(auth('approved', 'rkmv1234@gmail.com'), 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), extra: 1 }));
+});
 test('admin needs a verified email', async () => {
   const unverified = env.authenticatedContext('admin', { email: 'codewithpom@gmail.com', email_verified: false }).firestore();
   await assertFails(updateDoc(doc(unverified, 'users/pending'), { status: 'approved' }));
   await assertFails(getDoc(doc(unverified, 'overrides/q')));
 });
 
-const extraPerson = () => ({ reg_no: '0001', name: 'Test One', batch: 'MB28', addedBy: 'approved', ts: serverTimestamp() });
+const extraPerson = () => ({ reg_no: '0001', name: 'Test One', batch: 'MB28', addedBy: 'approved', ts: serverTimestamp(), status: 'pending' });
 const student = () => auth('approved', 'rkmv1234@gmail.com');
 
 test('approved student creates and reads a new person, including an empty name', async () => {
@@ -154,6 +157,8 @@ for (const [label, pid, patch] of [
   ['non-string name', 'S0001', { name: null }],
   ['other writer', 'S0001', { addedBy: 'someone-else' }],
   ['fake timestamp', 'S0001', { ts: new Date(0) }],
+  ['status approved', 'S0001', { status: 'approved' }],
+  ['unknown status', 'S0001', { status: 'weird' }],
 ]) test(`new people reject ${label}`, async () => {
   await assertFails(setDoc(doc(student(), 'people_extra/' + pid), { ...extraPerson(), ...patch }));
 });
@@ -188,4 +193,46 @@ test('only admin edits or deletes new people and updates retain shape and identi
   await assertFails(updateDoc(adminRef, { ts: new Date(0) }));
   await assertFails(setDoc(adminRef, { reg_no: '0001', name: 'Test Two', batch: 'MB28' }));
   await assertSucceeds(deleteDoc(adminRef));
+});
+
+test('new people must be created pending: no status or approved status fails', async () => {
+  const { status, ...noStatus } = extraPerson();
+  await assertFails(setDoc(doc(student(), 'people_extra/S0001'), noStatus));
+  await assertFails(setDoc(doc(student(), 'people_extra/S0001'), { ...extraPerson(), status: 'approved' }));
+  await assertSucceeds(setDoc(doc(student(), 'people_extra/S0001'), extraPerson()));
+});
+
+test('moderated reads: pending is visible to its adder and admin only; approved to every approved student', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'users/other'), { email: 'rkmv1234@gmail.com', regno: '1234', pid: 'S1234', status: 'approved' });
+    await setDoc(doc(db, 'people_extra/S0001'), extraPerson()); // pending, addedBy 'approved'
+    await setDoc(doc(db, 'people_extra/S0002'), { ...extraPerson(), reg_no: '0002', status: 'approved' });
+  });
+  const other = auth('other', 'rkmv1234@gmail.com');
+  await assertFails(getDoc(doc(other, 'people_extra/S0001')));
+  await assertSucceeds(getDoc(doc(student(), 'people_extra/S0001')));
+  await assertSucceeds(getDoc(doc(other, 'people_extra/S0002')));
+  await assertSucceeds(getDoc(doc(admin(), 'people_extra/S0001')));
+  const col = (db) => collection(db, 'people_extra');
+  const snap = await assertSucceeds(getDocs(query(col(other), where('status', '==', 'approved'))));
+  assert.deepEqual(snap.docs.map(d => d.id), ['S0002']);
+  await assertSucceeds(getDocs(query(col(student()), where('addedBy', '==', 'approved'))));
+  await assertFails(getDocs(query(col(other), where('addedBy', '==', 'approved')))); // someone else's pending doc is in range
+  await assertFails(getDocs(col(other)));
+  assert.equal((await assertSucceeds(getDocs(col(admin())))).size, 2);
+});
+
+test('admin approves a pending person and a legacy doc without status; students cannot change status', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    const { status, ...legacy } = extraPerson();
+    await setDoc(doc(db, 'people_extra/S0001'), extraPerson());
+    await setDoc(doc(db, 'people_extra/S0002'), { ...legacy, reg_no: '0002' });
+  });
+  await assertFails(updateDoc(doc(student(), 'people_extra/S0001'), { status: 'approved' }));
+  await assertFails(updateDoc(doc(admin(), 'people_extra/S0001'), { status: 'weird' }));
+  await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0001'), { status: 'approved' }));
+  await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0001'), { status: 'pending' }));
+  await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0002'), { status: 'approved' }));
 });

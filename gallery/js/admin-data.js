@@ -95,6 +95,10 @@ export async function listExtraPeople() {
   return snapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
 }
 
+export function approveExtraPerson(pid) {
+  return setDoc(doc(db, 'people_extra', pid), { status: 'approved' }, { merge: true });
+}
+
 export function updateExtraPerson(pid, name) {
   if (typeof name !== 'string' || name.length > 60) throw new Error('Names must be at most 60 characters.');
   return setDoc(doc(db, 'people_extra', pid), { name }, { merge: true });

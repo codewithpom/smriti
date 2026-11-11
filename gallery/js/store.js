@@ -67,9 +67,17 @@ async function extraPeople() {
   if (!extraRead) extraRead = (async () => {
     if ((await currentProfile())?.status !== 'approved') return [];
     const { getApp } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js');
-    const { collection, getDocs, getFirestore } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
-    const snapshot = await getDocs(collection(getFirestore(getApp()), 'people_extra'));
-    return snapshot.docs.map((item) => {
+    const { getAuth } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+    const { collection, getDocs, getFirestore, query, where } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+    const db = getFirestore(getApp());
+    const uid = getAuth(getApp()).currentUser.uid;
+    // Rules are not filters: a student must query by status or by their own addedBy, never read the whole collection.
+    const [approved, own] = await Promise.all([
+      getDocs(query(collection(db, 'people_extra'), where('status', '==', 'approved'))),
+      getDocs(query(collection(db, 'people_extra'), where('addedBy', '==', uid))),
+    ]);
+    const docs = new Map([...approved.docs, ...own.docs].map((item) => [item.id, item]));
+    return [...docs.values()].map((item) => {
       const p = item.data();
       return { id: item.id, kind: 'student', name: p.name || 'Reg ' + p.reg_no, reg_no: p.reg_no, batch: p.batch, section: null, photos: 0, avatar: null, extra: true };
     });

@@ -1,6 +1,6 @@
 ﻿import { el } from '../util.js';
 import { getToken, isAdmin, currentProfile } from '../auth.js';
-import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers, listExtraPeople, updateExtraPerson, deleteExtraPerson, getApprovalMode, setApprovalMode } from '../admin-data.js';
+import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers, listExtraPeople, updateExtraPerson, deleteExtraPerson, approveExtraPerson, getApprovalMode, setApprovalMode } from '../admin-data.js';
 
 const TABS = ['Users', 'Disputes', 'Uploads', 'Stats', 'New people', 'Export'];
 const api = async (path, options = {}) => {
@@ -142,9 +142,9 @@ export function mount(root) {
   }
   async function newPeople() {
     const list = (await listExtraPeople()).sort((a, b) => a.reg_no.localeCompare(b.reg_no));
-    body.append(el('h2', { text: 'New people' }));
+    body.append(el('h2', { text: 'New people' }), el('p', { class: 'muted small', text: 'Students add people as pending; approve them to show everyone and include them in the download.' }));
     body.append(button('Download for the pipeline', () => {
-      const data = list.map(({ reg_no, name, batch }) => ({ reg_no, name, batch }));
+      const data = list.filter((p) => p.status === 'approved').map(({ reg_no, name, batch }) => ({ reg_no, name, batch }));
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
       const link = el('a', { href: url, download: 'extra_people.json' });
       body.append(link); link.click(); link.remove();
@@ -162,7 +162,11 @@ export function mount(root) {
         button('Save', async () => {
           try { await updateExtraPerson(p.id, name.value); p.name = name.value; status.textContent = 'Name saved.'; }
           catch (e) { status.textContent = e.message; }
-        }), el('span', { class: 'muted', text: p.batch }), remove));
+        }), el('span', { class: 'muted', text: p.batch }), el('span', { class: 'pill', text: p.status || 'legacy' }),
+        p.status !== 'approved' && button('Approve', async () => {
+          try { await approveExtraPerson(p.id); await render(); status.textContent = 'Person approved.'; }
+          catch (e) { status.textContent = e.message; }
+        }), remove));
     }
     if (!list.length) body.append(el('p', { class: 'muted', text: 'No new people.' }));
   }

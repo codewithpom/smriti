@@ -81,7 +81,7 @@ export function mount(root, ctx) {
           const { getFirestore, doc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
           const user = getAuth(getApp()).currentUser;
           if (!user) throw new Error('Please sign in again.');
-          await setDoc(doc(getFirestore(getApp()), 'people_extra', pid), { reg_no, name: personName, batch: selectedBatch, addedBy: user.uid, ts: serverTimestamp() });
+          await setDoc(doc(getFirestore(getApp()), 'people_extra', pid), { reg_no, name: personName, batch: selectedBatch, addedBy: user.uid, status: 'pending', ts: serverTimestamp() });
           p = { id: pid, kind: 'student', reg_no, name: personName, batch: selectedBatch, photos: 0, avatar: null, extra: true };
         }
         p = { ...p, name: p.name || 'Reg ' + reg_no, section: p.section || null };
