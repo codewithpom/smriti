@@ -1,5 +1,6 @@
 import { requireApproved, errorResponse, jsonResponse } from '../_shared/auth.js';
 import { storage } from '../_shared/store.js';
+import { requestScan } from '../_shared/github.js';
 
 const LIMIT = 10 * 1024 * 1024;
 const MULTIPART_OVERHEAD_LIMIT = 128 * 1024;
@@ -29,7 +30,8 @@ async function readLimited(stream, limit = LIMIT) {
   return bytes;
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {
+  const { request, env } = context;
   const auth = await requireApproved(request, env);
   if (auth.response) return auth.response;
   const pending = await storage(env).list({ prefix: `pending/${auth.user.uid}/` });
@@ -52,5 +54,7 @@ export async function onRequestPost({ request, env }) {
   if (!type) return errorResponse(400, 'unsupported_image');
   const key = `pending/${auth.user.uid}/${Date.now()}-${crypto.randomUUID()}.${type.ext}`;
   await storage(env).put(key, bytes, { httpMetadata: { contentType: type.mime } });
+  const scan = requestScan(env).catch(() => 'dispatch_failed');
+  if (typeof context.waitUntil === 'function') context.waitUntil(scan); else await scan;
   return jsonResponse({ ok: true, key });
 }

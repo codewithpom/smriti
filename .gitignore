@@ -52,3 +52,7 @@ gallery/deploy/mb27ndp.toml
 # AdaFace weights (downloaded model files, not for the repo)
 gallery/pipeline/.models/
 dist-stage/
+
+# --- ci_scan.py working folders when run locally (portraits, cookies) ---
+/hello/
+gallery/pipeline/.fb-cookies.txt

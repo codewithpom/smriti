@@ -21,12 +21,17 @@ If that sounds like something you'd like to help with, you're very welcome. See 
 ## Features
 
 - **Private gallery.** Photos, people, places and a force-directed "friends" graph built from who appears together.
-- **Face matching, humans in the loop.** InsightFace embeds every face and proposes candidates. Anything uncertain becomes a review question instead of a guess.
+- **Face matching, humans in the loop.** The recipe photo apps like Immich use, tuned for a CPU runner: SCRFD detection, ArcFace embeddings with flip test-time augmentation, a per-face quality score (sharpness, pose, size, detector confidence), quality-weighted person prototypes, and HDBSCAN clustering of unknown faces with a cannot-link rule (one person appears once per photo). AdaFace fusion is optional, and `eval_match.py --clusters` gates any change. Anything uncertain becomes a review question instead of a guess.
+- **Automatic ingest on GitHub Actions.** An upload triggers the `scan` workflow, which only processes new photos. Each upload shows its progress live: queued, processing (stage x of y), waiting for approval, live.
+- **Duplicate detection.** Each photo gets a perceptual hash (DCT pHash), computed identically in the browser and the pipeline. The upload page warns about photos already in the archive before anything is sent, and the pipeline drops duplicates. Existing duplicates in the archive are hidden without being deleted.
+- **Storage switch.** Workers KV (free, no card, 1 GB) or R2 (free up to 10 GB, card on file), chosen with a radio button in Admin > Ingest. "Copy data now" migrates every key and verifies it.
 - **Crowd review.** Students answer short questions ("Is this Asha?", "Where was this taken?"). A weighted vote settles each one and disputes go to an admin.
 - **Google sign-in, locked to the batch.** Only verified `rkmv<registration number>@gmail.com` accounts that are on the roster get in. An admin can add emails and block accounts. An admin can also switch on approval mode, so each new student waits to be approved.
-- **Student uploads** with server-side validation, per-student quotas and admin approval.
+- **Student uploads** with server-side validation and per-student quotas. Photos are processed straight away and published after admin approval.
 - **Admin dashboard.** Manage users, resolve disputes, review uploads, watch per-student stats, export settled answers.
-- **Facebook page ingest** with `gallery-dl`, run locally with your own cookies, on the page owner's permission.
+- **Unnamed people, named later.** Faces that match nobody are grouped automatically into stable unnamed people (the same group keeps its id between scans). Name a group once in Review and every face in it is labelled, like Google Photos and Immich.
+- **Facebook page ingest** with `gallery-dl`, on the page owner's permission. Run it locally, or opt in from the admin panel's Ingest tab: cookies are saved write-only in the private R2 bucket and the `scan` workflow reads them on the runner (never in the repo, never in logs, deleted after the run). Facebook can lock a session used from a datacenter IP, so use a throwaway account.
+- **Home feed and landing page.** Signed-out visitors see a drawn landing page, never a real photo. Members get a Home feed that reshuffles every visit, with the dated grid under All photos.
 - **No build step.** Vanilla ES modules, keyboard-first review UI, works at phone width.
 
 ![Gallery grid in the demo](docs/img/demo-gallery.png)
@@ -55,15 +60,17 @@ flowchart LR
   S -- Bearer ID token --> PF[Cloudflare Pages Functions]
   PF -- verify RS256 token --> FA
   PF -- approved? with user's own token --> FS
-  PF --> KV[(Workers KV: data JSON, uploads)]
+  PF --> KV[(KV or R2: uploads, data JSON, status, state)]
   S -- static assets --> CP[Cloudflare Pages]
   A[Admin dashboard] --> FS
   A --> PF
-  subgraph Pipeline [Python pipeline: runs locally]
-    C[catalog.py] --> AS[assets.py] --> F[faces.py InsightFace] --> B[build.py]
+  PF -- upload / review: dispatch --> GA
+  subgraph GA [GitHub Actions: scan.yml -> ci_scan.py]
+    I[ingest + dedupe] --> AS[assets] --> F[faces] --> B[build]
   end
-  Pipeline -- data JSON --> KV
-  FS -- tally.py: settled answers --> Pipeline
+  KV <--> GA
+  GA -- wrangler pages deploy --> CP
+  A -- Export: settled answers --> KV
 ```
 
 Design notes and the reasoning behind each choice: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The build contract the parts were written against: [`gallery/CONTRACT.md`](gallery/CONTRACT.md).
@@ -108,11 +115,14 @@ cd gallery/tests && npm install && npm test
 # Cloudflare Functions
 cd gallery/functions && node --test --test-isolation=none tests/*.test.mjs
 
-# Pipeline: tally, image renaming, photo filter
-cd gallery/pipeline && python -m unittest test_tally test_obfuscate test_filter_batch
+# Pipeline: every unit test (faces, dedupe, storage, incremental scan, ...)
+cd gallery/pipeline && python -m unittest discover -p "test_*.py"
 
 # Demo dataset consistency
 pip install pillow && python gallery/demo/check_demo.py
+
+# Whole ingest pipeline with real InsightFace on the synthetic demo faces (uploads, duplicates, approval, publish)
+pip install -r gallery/pipeline/requirements-scan.txt && python -I gallery/demo/e2e_scan.py
 ```
 
 The face pipeline needs `insightface`, `onnxruntime`, `numpy`, `scipy` and `pillow` (see [`gallery/pipeline/requirements-scan.txt`](gallery/pipeline/requirements-scan.txt)). Paths come from `RKMV_SOURCE` (photos, one folder per album) and `RKMV_PEOPLE` (student portraits and `identities.json`).
@@ -126,6 +136,17 @@ The face pipeline needs `insightface`, `onnxruntime`, `numpy`, `scipy` and `pill
 5. Choose the approval mode in Admin > Users: `auto` (default) approves a roster student on first sign-in, `admin` leaves new users pending until you approve them.
 6. `gallery/pipeline/deploy_cloudflare.ps1 -Target <yours> -Deploy` builds `dist/`, renames images to unguessable names, uploads the data JSON to KV and deploys Pages.
 
+### Automatic ingest (GitHub Actions)
+
+After the first deploy, the `scan` workflow takes over processing and publishing for the real site. It never uses the repo's `wrangler.toml`, which binds the demo. It writes its own, binding `PHOTOS` to the chosen storage.
+
+1. **GitHub variables:** `STORAGE_BACKEND` (`kv` or `r2`), `PAGES_PROJECT`, `FIREBASE_PROJECT_ID`.
+2. **GitHub secrets:** `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages: Edit, plus Workers KV: Edit for kv mode), `IMG_KEY` (the content of `gallery/pipeline/.secrets/img-key.txt`, so image names stay stable). For kv mode add `CF_KV_NAMESPACE_ID`. For r2 mode add `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
+3. **Pages secret** `GITHUB_DISPATCH_TOKEN`: a fine-grained token for this repo only, with Actions read/write and Variables read/write. It lets uploads start the workflow and lets the storage radio set `STORAGE_BACKEND`.
+4. **Seed once from your machine.** Run `python gallery/pipeline/ci_scan.py --backfill-hashes <albums dir>` (adds the hashes and marks existing duplicates). Then run `obfuscate.py --src gallery --out <dir>` and `python gallery/pipeline/remote.py seed --data gallery/data --site <dir> --people <people dir>` (`--site` is the obfuscate output, so the served JSON and the stored images use the same renamed paths), adding `--originals <albums dir>` on R2. The seed respects the KV daily write budget, so rerun it the next day if it stops early.
+
+A run costs nothing when nothing is pending (the daily cron exits in seconds). Uploads in a burst share one queued run.
+
 The `rkmv<number>@gmail.com` email pattern belongs to the school this was built for. Change it in `firestore.rules`, `gallery/js/auth.js` and `gallery/functions/_shared/auth.js` for your own deployment.
 
 ### Free-tier budget
@@ -135,7 +156,9 @@ The `rkmv<number>@gmail.com` email pattern belongs to the school this was built 
 | Firebase Auth | Google sign-in | 50k monthly active users |
 | Firestore | votes, users, progress | 50k reads and 20k writes per day, 1 GiB |
 | Cloudflare Pages | site + Functions | unlimited static bandwidth, 100k Function requests per day |
-| Cloudflare Workers KV | data JSON, uploads | 1 GB, about 1k writes per day (no card needed) |
+| Cloudflare Workers KV | uploads, data JSON, status, pipeline state, images | 1 GB, about 1k writes per day (no card needed). The pipeline keeps itself under 700 a day |
+| Cloudflare R2 (optional) | the same, plus original photos | 10 GB, 1M writes and 10M reads a month, no egress fees (card on file) |
+| GitHub Actions | face recognition, duplicates, publishing | free for public repos |
 
 Read budget is the tight one, so a student's browser reads one progress doc plus only their own votes, with the answered set cached locally.
 

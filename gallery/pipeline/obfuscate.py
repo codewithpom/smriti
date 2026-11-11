@@ -17,7 +17,7 @@ import shutil
 import sys
 from pathlib import Path
 
-DATA_FILES = ("photos", "people", "graph", "questions", "clusters")
+DATA_FILES = ("photos", "people", "graph", "questions", "clusters", "pending")
 KEY_FILE = Path(__file__).resolve().parent / ".secrets" / "img-key.txt"
 
 
@@ -40,7 +40,7 @@ def walk(obj, fn):
     return fn(obj) if isinstance(obj, str) else obj
 
 
-def build(src, out, key):
+def build(src, out, key, require_files=True):
     src, out = Path(src), Path(out)
     mapping, missing = {}, set()
 
@@ -48,7 +48,8 @@ def build(src, out, key):
         if not value.startswith("img/"):
             return value
         if value not in mapping:
-            if (src / value).is_file():
+            exists = (src / value).is_file()
+            if exists or not require_files:
                 mapping[value] = hashed(key, value)
             else:
                 missing.add(value)
@@ -64,7 +65,8 @@ def build(src, out, key):
         data = walk(json.loads(p.read_text(encoding="utf-8")), remap)
         (out / "data" / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     for old, new in mapping.items():
-        shutil.copyfile(src / old, out / new)
+        if (src / old).is_file():
+            shutil.copyfile(src / old, out / new)
     return len(mapping), len(missing)
 
 

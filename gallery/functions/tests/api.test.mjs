@@ -76,6 +76,48 @@ test('data route requires approval and allows only contract names', async () => 
   assert.equal(pending.status, 403);
 });
 
+test('data route enforces the full name contract and authentication', async () => {
+  const bucket = r2();
+  const env = { ...ENV, PHOTOS: bucket };
+  for (const name of ['photos', 'people', 'graph', 'questions', 'clusters']) {
+    await bucket.put(`data/${name}.json`, new TextEncoder().encode('[1]'));
+    for (const [options, status] of [[{}, 200], [{ headers: { authorization: '' } }, 401], [{ as: 'pending' }, 403]]) {
+      const response = await getData({ request: request(`/api/data/${name}`, options), env, params: { name } });
+      assert.equal(response.status, status, `${name}: ${status}`);
+      if (status === 200) assert.equal(await response.text(), '[1]');
+    }
+  }
+  for (const name of ['unknown', '../secrets', '..', 'photos/../../secrets', '%2e%2e%2fsecrets', 'photos.json']) {
+    const response = await getData({ request: request(`/api/data/${encodeURIComponent(name)}`), env, params: { name } });
+    assert.equal(response.status, 404, name);
+  }
+});
+
+test('every admin route denies absent tokens and non-admin students', async () => {
+  const key = 'pending/student-1/123-abc.jpg';
+  const env = { ...ENV, PHOTOS: r2() };
+  for (const [handler, path, options] of [
+    [getUploads, '/api/admin/uploads', {}],
+    [actOnUpload, '/api/admin/uploads', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, action: 'approve' }) }],
+    [getUploadImage, `/api/admin/upload-image?key=${encodeURIComponent(key)}`, {}],
+  ]) {
+    for (const [auth, status] of [[{ headers: { authorization: '' } }, 401], [{ as: 'pending' }, 403], [{ as: 'student-1' }, 403]]) {
+      const response = await handler({ request: request(path, { ...options, ...auth, headers: { ...options.headers, ...auth.headers } }), env });
+      assert.equal(response.status, status, `${options.method || 'GET'} ${path}: ${status}`);
+    }
+  }
+});
+
+test('review decisions write a marker and preserve the raw pending upload', async () => {
+  const bucket = r2();
+  const response = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ photo: 'p0123abcd', action: 'approve' }) }), env: { ...ENV, PHOTOS: bucket } });
+  assert.equal(response.status, 200);
+  const marker = JSON.parse(new TextDecoder().decode((await bucket.get('review/p0123abcd.json')).body));
+  assert.deepEqual(Object.keys(marker).sort(), ['action', 'at', 'by']);
+  assert.equal(marker.action, 'approve');
+  assert.equal(marker.by, 'admin');
+});
+
 test('me reports profile and admin status; malformed or absent tokens fail closed', async () => {
   const me = await getMe({ request: request('/api/me'), env: ENV });
   assert.deepEqual(await me.json(), { ok: true, email: 'rkmv1234@gmail.com', regno: '1234', status: 'approved', admin: false });
@@ -122,24 +164,22 @@ test('upload rejects a streamed body over 10 MB with 413', async () => {
   assert.equal(response.status, 413);
 });
 
-test('admin routes list, preview, approve and reject only pending uploads', async () => {
+test('admin routes list and preview pending uploads; decisions use markers', async () => {
   const bucket = r2();
   const key = `pending/student-1/${Date.now()}-abc123.jpg`;
   await bucket.put(key, Uint8Array.from([0xff, 0xd8, 0xff]), { httpMetadata: { contentType: 'image/jpeg' } });
   const env = { ...ENV, PHOTOS: bucket };
   const list = await getUploads({ request: request('/api/admin/uploads', { as: 'admin' }), env });
-  assert.equal((await list.json()).uploads[0].uid, 'student-1');
+  assert.deepEqual(await list.json(), { ok: true, items: [], queued: 1 });
   assert.equal((await getUploadImage({ request: request(`/api/admin/upload-image?key=${encodeURIComponent(key)}`, { as: 'admin' }), env })).status, 200);
-  const approved = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, action: 'approve' }) }), env });
+  const approved = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ photo: 'p0123abcd', action: 'approve' }) }), env });
   assert.equal(approved.status, 200);
-  assert.equal(objects.has(key), false);
-  assert.equal([...objects.keys()].some(value => value.startsWith('inbox/')), true);
-  const rejectKey = `pending/student-1/${Date.now()}-def456.png`;
-  await bucket.put(rejectKey, new Uint8Array([1]));
-  const rejected = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: rejectKey, action: 'reject' }) }), env });
+  assert.equal(objects.has(key), true);
+  assert.equal(objects.has('review/p0123abcd.json'), true);
+  const rejected = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ photo: 'p0123abce', action: 'reject' }) }), env });
   assert.equal(rejected.status, 200);
-  assert.equal(objects.has(rejectKey), false);
-  const traversal = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'pending/../secrets', action: 'approve' }) }), env });
+  assert.equal(objects.has('review/p0123abce.json'), true);
+  const traversal = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ photo: '../secrets', action: 'approve' }) }), env });
   assert.equal(traversal.status, 400);
   const forbidden = await getUploads({ request: request('/api/admin/uploads'), env });
   assert.equal(forbidden.status, 403);

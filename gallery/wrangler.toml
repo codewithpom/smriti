@@ -9,5 +9,6 @@ id = "dbbb32af93aa4a24aaa6ad77fb2c896d"
 
 [vars]
 FIREBASE_PROJECT_ID = "smriti-gallery-80808"
+GITHUB_REPO = "codewithpom/smriti"   # public repo; the admin panel dispatches scan.yml here
 # ADMIN_EMAILS is NOT set here (this file is public in the repo). Set it as a secret:
 #   npx wrangler pages secret put ADMIN_EMAILS --project-name <project>

@@ -40,30 +40,37 @@ def process(entry, force):
     return {"color": "#%02x%02x%02x" % tuple(mean), "thumb_w": tw, "thumb_h": th}
 
 
-def main():
+def process_ids(catalog, ids, force=False):
+    selected = set(ids)
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
+    THUMB_DIR.mkdir(parents=True, exist_ok=True)
+    errors = []
+    written = []
+    for entry in catalog:
+        if entry["id"] not in selected or not (SRC / entry["file"]).is_file():
+            continue
+        try:
+            web = WEB_DIR / f"{entry['id']}.webp"
+            thumb = THUMB_DIR / f"{entry['id']}.webp"
+            before = {path for path in (web, thumb) if path.exists()}
+            entry.update(process(entry, force))
+            written.extend(path for path in (web, thumb) if path.exists() and (force or path not in before))
+        except Exception as ex:
+            errors.append(f"{entry['file']}: {ex!r}")
+    if written:
+        for path in random.sample(written, min(20, len(written))):
+            with Image.open(path) as im:
+                if len(im.getexif()) != 0:
+                    raise RuntimeError("generated asset contains EXIF")
+    return errors
+
+
+def main(ids=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
-    WEB_DIR.mkdir(parents=True, exist_ok=True)
-    THUMB_DIR.mkdir(parents=True, exist_ok=True)
-
     catalog = json.loads(OUT.read_text(encoding="utf-8"))
-
-    def run(entry):
-        try:
-            return entry, process(entry, args.force), None
-        except Exception as ex:  # keep going, report at the end
-            return entry, None, f"{entry['file']}: {ex!r}"
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = list(pool.map(run, catalog))
-
-    errors = []
-    for entry, updates, err in results:
-        if err:
-            errors.append(err)
-        else:
-            entry.update(updates)
+    errors = process_ids(catalog, ids if ids is not None else [e["id"] for e in catalog], args.force)
     OUT.write_text(json.dumps(catalog, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # verification
@@ -71,11 +78,11 @@ def main():
     thumbs = sorted(THUMB_DIR.glob("*.webp"))
     print(f"thumbs={len(thumbs)} webs={len(webs)} catalog={len(catalog)}")
 
-    outputs = webs + thumbs
-    for p in random.sample(outputs, min(20, len(outputs))):
-        with Image.open(p) as im:
-            if len(im.getexif()) != 0:
-                raise SystemExit(f"EXIF found in {p}")
+    if ids is None:
+        for p in random.sample(webs + thumbs, min(20, len(webs + thumbs))):
+            with Image.open(p) as im:
+                if len(im.getexif()) != 0:
+                    raise SystemExit("EXIF found in generated asset")
 
     total_bytes = sum(p.stat().st_size for p in IMG.rglob("*") if p.is_file())
     print(f"img total: {total_bytes / 1e6:.1f} MB")

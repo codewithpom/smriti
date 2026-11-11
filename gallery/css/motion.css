@@ -1,0 +1,24 @@
+/* Shared motion: view fade-in, tile fade-in, button press, loading shimmer. All off under reduced motion. */
+:root { --header-h: 72px; }
+@media (max-width: 639px) { :root { --header-h: 64px; } }   /* matches the .side bar heights so month titles stick below it */
+
+.main > * { animation: view-in .32s var(--ease) both; }
+.main > :nth-child(2) { animation-delay: 40ms; }
+.main > :nth-child(3) { animation-delay: 80ms; }
+.gp-grid .gp-tile { animation: tile-in .45s var(--ease) both; }
+.btn { transition: transform var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
+.btn:active { transform: scale(.97); }
+.gp-strip-person, .gp-person-card { transition: transform var(--dur) var(--ease); }
+.gp-strip-person:hover, .gp-person-card:hover { transform: translateY(-2px); }
+
+/* skeleton while the first screen loads */
+#view > p.muted:only-child { position: relative; overflow: hidden; width: 12ch; border-radius: 8px; color: transparent; background: var(--raised); }
+#view > p.muted:only-child::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgb(255 255 255 / .18), transparent); animation: shimmer 1.2s 10; }
+
+@keyframes view-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tile-in { from { opacity: 0; transform: scale(.97); } }
+@keyframes shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .main > *, .gp-grid .gp-tile, #view > p.muted:only-child::after { animation: none; }
+  .btn:active, .gp-strip-person:hover, .gp-person-card:hover { transform: none; }
+}

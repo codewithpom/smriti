@@ -10,8 +10,10 @@ export const isOpen = () => !!root;
 
 export function open(id, c) {
   ctx = c;
-  if (!root) build();
+  const initialOpen = !root;
+  if (initialOpen) build();
   show(id);
+  if (initialOpen && root) ui.close.focus({ preventScroll: true });
 }
 
 export function close() {
@@ -44,7 +46,7 @@ function build() {
   ui.prev = control('Previous photo', ICON.left, () => step(-1), { class: 'btn lb-control lb-arrow lb-prev' });
   ui.next = control('Next photo', ICON.right, () => step(1), { class: 'btn lb-control lb-arrow lb-next' });
   ui.stage = el('div', { class: 'lb-stage', ontouchstart: startTouch, ontouchend: endTouch,
-    ontouchcancel: () => { touchStart = null; } }, ui.frame, ui.prev, ui.next);
+    ontouchcancel: () => { touchStart = null; }, ondblclick: toggleZoom }, ui.frame, ui.prev, ui.next);
   ui.title = el('h1', { class: 'lb-title', tabindex: '-1' });
   ui.pos = el('span', { class: 'lb-position', role: 'status', 'aria-live': 'polite' });
   ui.close = control('Close photo', ICON.left, () => ctx.closeLightbox());
@@ -104,8 +106,24 @@ function toggleInfo(value = !infoOpen) {
   activity();
 }
 
+// Double-click or double-tap zooms the photo in about the tapped point and back out. While zoomed, swipes are ignored.
+let zoomed = false, lastTap = 0, lastZoom = 0;
+function toggleZoom(e) {
+  const img = ui.frame.querySelector('img');
+  if (!img || e.target.closest('a,button') || Date.now() - lastZoom < 400) return; // touch double-tap also fires dblclick
+  lastZoom = Date.now();
+  zoomed = !zoomed;
+  const r = img.getBoundingClientRect();
+  img.style.transformOrigin = `${((e.clientX - r.left) / r.width) * 100}% ${((e.clientY - r.top) / r.height) * 100}%`;
+  img.style.transform = zoomed ? 'scale(2.4)' : '';
+  img.classList.toggle('lb-zoomed', zoomed);
+}
+function resetZoom() { zoomed = false; }
+
 function startTouch(e) {
-  touchStart = e.touches.length === 1 && !e.target.closest('a,button')
+  if (e.touches.length === 1 && Date.now() - lastTap < 300) { toggleZoom(e.touches[0] && { target: e.target, clientX: e.touches[0].clientX, clientY: e.touches[0].clientY }); lastTap = 0; touchStart = null; return; }
+  if (e.touches.length === 1) lastTap = Date.now();
+  touchStart = e.touches.length === 1 && !zoomed && !e.target.closest('a,button')
     ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
 }
 
@@ -202,10 +220,11 @@ function show(id) {
   ui.faces = facesLayer(p);
   ui.frame.style.backgroundColor = p.color;
   ui.frame.style.backgroundImage = cssUrl(p.thumb);
-  const image = el('img', { src: imgUrl(p.web), alt: p.alt || '', loading: 'lazy', decoding: 'async',
+  const image = el('img', { src: imgUrl(p.web), alt: p.alt || '', loading: 'eager', decoding: 'async',
     width: p.w || p.tw || 1, height: p.h || p.th || 1 });
   image.addEventListener('load', () => image.classList.add('lb-loaded'), { once: true });
   if (image.complete) image.classList.add('lb-loaded');
+  resetZoom();
   ui.frame.replaceChildren(image, ui.faces);
   fit();
 

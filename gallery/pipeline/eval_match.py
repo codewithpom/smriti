@@ -10,6 +10,49 @@ import numpy as np
 from faces import DATA, MIN_FACE_PX, T_HIGH, T_MARGIN, decide, rank_persons
 
 
+def cluster_scores(pred, truth):
+    """Pairwise and B-cubed rates; each -1/None label denotes its own singleton.
+
+    Empty partitions score zero; a missing pair denominator scores one (no errors).
+    Counts use contingency cells, avoiding quadratic enumeration of face pairs.
+    """
+    if len(pred) != len(truth):
+        raise ValueError("partitions must have equal lengths")
+    names = ("pairwise_p", "pairwise_r", "pairwise_f1", "bcubed_p", "bcubed_r", "bcubed_f1")
+    if not len(pred):
+        return dict.fromkeys(names, 0.0)
+    def partition(labels):
+        return [("single", i) if label is None or label == -1 else ("group", label)
+                for i, label in enumerate(labels)]
+    pred, truth = partition(pred), partition(truth)
+    pc, tc, cells = Counter(pred), Counter(truth), Counter(zip(pred, truth))
+    pairs = lambda counts: sum(n * (n - 1) // 2 for n in counts)
+    correct, proposed, actual = pairs(cells.values()), pairs(pc.values()), pairs(tc.values())
+    pp = correct / proposed if proposed else 1.0
+    pr = correct / actual if actual else 1.0
+    bp = sum(n * n / pc[p] for (p, _), n in cells.items()) / len(pred)
+    br = sum(n * n / tc[t] for (_, t), n in cells.items()) / len(pred)
+    f1 = lambda p, r: 2 * p * r / (p + r) if p + r else 0.0
+    return dict(zip(names, (pp, pr, f1(pp, pr), bp, br, f1(bp, br))))
+
+
+def print_cluster_table(raw, emb, corrections, aliases=None):
+    from faces import cluster_pool, face_q
+    aliases = aliases or {}
+    truth = corrections.get("faces", {})
+    confirmed = [(row["photo"], f, aliases.get(pid, pid)) for row in raw
+                 for i, f in enumerate(row["faces"])
+                 if (pid := truth.get(f"{row['photo']}:{i}")) not in (None, "none")]
+    vectors = np.asarray([emb[f["e"]] for _, f, _ in confirmed])
+    print(" method faces groups loose pairwise_p pairwise_r pairwise_f1 bcubed_p bcubed_r bcubed_f1")
+    for method in ("hdbscan", "average"):
+        labels = cluster_pool(vectors, [face_q(f) for _, f, _ in confirmed],
+                              [photo for photo, _, _ in confirmed], method)
+        scores = cluster_scores(labels, [pid for _, _, pid in confirmed])
+        print(f"{method:>7} {len(labels):5d} {len(set(labels) - {-1}):6d} {labels.count(-1):5d} "
+              + " ".join(f"{v:.3f}" for v in scores.values()))
+
+
 def leave_one_out_trials(raw, emb, ref_emb, ref_ids, corrections, bank="refs+confirmed", agg="max"):
     """Return ranked trials and anonymous counts, without changing inputs."""
     if bank not in ("refs", "refs+confirmed"):
@@ -98,6 +141,7 @@ def main(argv=None):
     parser.add_argument("--agg", choices=("max", "top3", "both"), default="both")
     parser.add_argument("--bank", choices=("refs", "refs+confirmed", "both"), default="both")
     parser.add_argument("--target", type=float, default=0.98)
+    parser.add_argument("--clusters", action="store_true", help="also compare clustering methods on confirmed faces")
     args = parser.parse_args(argv)
     if not 0 <= args.target <= 1:
         parser.error("--target must be between 0 and 1")
@@ -122,6 +166,9 @@ def main(argv=None):
             print_table("T_HIGH", rows)
             print_table("T_MARGIN", sweep(trials, (0.0, 0.03, 0.06, 0.10), axis="margin"))
             print(target_line(bank, agg, rows, args.target))
+    if args.clusters:
+        aliases = load("aliases.json") if (args.data / "aliases.json").exists() else {}
+        print_cluster_table(raw, emb, corrections, aliases)
 
 
 if __name__ == "__main__":
