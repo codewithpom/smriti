@@ -175,12 +175,6 @@ def _copy_missing_images(remote, cache, dest):
     baseline_paths = set()
     if baseline:
         version = baseline["sha256"]
-        object_key = baseline.get("object", "state/published-assets.tar.gz")
-        if object_key != "state/published-assets.tar.gz":
-            if (not isinstance(version, str) or len(version) != 64
-                    or any(c not in "0123456789abcdef" for c in version)
-                    or object_key != f"state/published-assets/{version}.tar.gz"):
-                raise ValueError("invalid baseline image object")
         stamp = cache / ".baseline-version"
         paths = []
         for value in baseline["paths"]:
@@ -190,7 +184,7 @@ def _copy_missing_images(remote, cache, dest):
             paths.append(path)
             baseline_paths.add(path.as_posix())
         if not stamp.exists() or stamp.read_text() != version or any(not (cache / p).is_file() for p in paths):
-            if not remote.unpack_get(object_key, cache):
+            if not remote.unpack_get("state/published-assets.tar.gz", cache):
                 raise RuntimeError("missing baseline image archive")
             stamp.write_text(version)
         for path in paths:
