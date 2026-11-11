@@ -23,7 +23,7 @@ If that sounds like something you'd like to help with, you're very welcome. See 
 - **Private gallery.** Photos, people, places and a force-directed "friends" graph built from who appears together.
 - **Face matching, humans in the loop.** InsightFace embeds every face and proposes candidates. Anything uncertain becomes a review question instead of a guess.
 - **Crowd review.** Students answer short questions ("Is this Asha?", "Where was this taken?"). A weighted vote settles each one and disputes go to an admin.
-- **Google sign-in, locked to the batch.** Only verified `rkmv<registration number>@gmail.com` accounts that are on the roster get in. An admin can add emails and block accounts.
+- **Google sign-in, locked to the batch.** Only verified `rkmv<registration number>@gmail.com` accounts that are on the roster get in. An admin can add emails and block accounts. An admin can also switch on approval mode, so each new student waits to be approved.
 - **Student uploads** with server-side validation, per-student quotas and admin approval.
 - **Admin dashboard.** Manage users, resolve disputes, review uploads, watch per-student stats, export settled answers.
 - **Facebook page ingest** with `gallery-dl`, run locally with your own cookies, on the page owner's permission.
@@ -123,7 +123,8 @@ The face pipeline needs `insightface`, `onnxruntime`, `numpy`, `scipy` and `pill
 2. Create a free KV namespace (`wrangler kv namespace create <name>`, no card needed) and copy `gallery/deploy/smriti.toml` to your own target with that id.
 3. `npx wrangler pages secret put ADMIN_EMAILS` (comma-separated admin emails; also edit the admin list in `firestore.rules`).
 4. Import the roster from the admin dashboard, or with `python gallery/pipeline/seed_roster.py --dry-run` first.
-5. `gallery/pipeline/deploy_cloudflare.ps1 -Target <yours> -Deploy` builds `dist/`, renames images to unguessable names, uploads the data JSON to KV and deploys Pages.
+5. Choose the approval mode in Admin > Users: `auto` (default) approves a roster student on first sign-in, `admin` leaves new users pending until you approve them.
+6. `gallery/pipeline/deploy_cloudflare.ps1 -Target <yours> -Deploy` builds `dist/`, renames images to unguessable names, uploads the data JSON to KV and deploys Pages.
 
 The `rkmv<number>@gmail.com` email pattern belongs to the school this was built for. Change it in `firestore.rules`, `gallery/js/auth.js` and `gallery/functions/_shared/auth.js` for your own deployment.
 
@@ -145,8 +146,10 @@ Photos of minors and face data are the sensitive part, so the rules are strict a
 | Threat | Control |
 |---|---|
 | Someone outside the batch signs in | Firestore rules and the Function both require `email_verified`, the email pattern, and a roster entry |
-| A student unblocks or promotes themselves | `users` can only be created as `approved` for a roster member; only an admin can change `status` (tested) |
-| Vote tampering or ballot stuffing | One doc per `{question}__{uid}`; rules force own uid, approved status, valid id format and a matching question type (tested) |
+| A student unblocks or promotes themselves | `users` can only be created for a roster member through Google sign-in, with a server timestamp; only an admin can change `status` (tested) |
+| Students admitted without review | Approval mode in `meta/config`: `auto` (default) approves a roster student on first sign-in; `admin` keeps new users `pending` until an admin approves them (tested) |
+| Vote tampering or ballot stuffing | One doc per `{question}__{uid}`; rules force own uid, approved status, an exact payload shape, answer format and a matching question type. An update must wait 10 seconds after the stored vote, which caps update loops (tested) |
+| Junk entries in extra people | `people_extra` can only be added for a registration number that is in the roster, so the collection stays roster-sized (every student reads it) (tested) |
 | Quota exhaustion by one account | Id format and length limits, 50 pending uploads per student, 10 MB streamed upload cap |
 | Forged tokens | Functions verify Firebase ID tokens with WebCrypto against Google's keys: RS256 pinned, `aud`, `iss`, `exp`, `sub` and `email_verified` checked |
 | Student names served publicly | Data JSON lives in KV and is served only by an authenticated Function, never as a static file |
@@ -156,6 +159,9 @@ Photos of minors and face data are the sensitive part, so the rules are strict a
 
 - Photos are static assets protected by unguessable filenames (capability links), not by a login check, because the free Workers tier allows only 100k requests a day. Anyone who obtains one photo's link can open that photo. Ideas for better: see the open issues.
 - Firestore rules cannot rate-limit. Abuse is bounded by the quotas above and visible in the admin Stats tab.
+- The vote update throttle does not stop a delete-then-create loop, because rules have no per-user counter.
+- Vote question ids are only format-checked, not checked against the question list, so junk ids cost writes. The tally ignores them.
+- In `auto` approval mode, anyone who creates a roster Gmail address nobody has claimed can sign in. Use `admin` mode if the school did not create the addresses.
 - Student emails follow a guessable pattern, so the roster and the verified-email check are the only gate. Add an address to the roster only if you know it belongs to that student.
 - This handles photos and biometric data of minors. If you adapt it, get written consent from the institution and guardians, follow your local law (for example India's DPDP Act), and never publish the roster or the photos.
 

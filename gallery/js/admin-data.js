@@ -60,6 +60,17 @@ export async function listAllVotes() {
   }
 }
 
+// 'admin' holds new students as pending; a missing doc means 'auto'.
+export async function getApprovalMode() {
+  const snapshot = await getDoc(doc(db, 'meta', 'config'));
+  return snapshot.exists() && snapshot.data().approval === 'admin' ? 'admin' : 'auto';
+}
+
+export function setApprovalMode(mode) {
+  if (!['auto', 'admin'].includes(mode)) throw new Error('Invalid approval mode.');
+  return setDoc(doc(db, 'meta', 'config'), { approval: mode });
+}
+
 export function saveProgress({ settled, disputed }) {
   return setDoc(doc(db, 'meta', 'progress'), { settled, disputed, updatedAt: serverTimestamp() });
 }

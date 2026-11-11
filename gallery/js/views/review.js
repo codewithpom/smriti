@@ -9,6 +9,7 @@ const REASON = { disagree: 'The folder and the picture point to different places
 const LOCAL = location.hostname === '127.0.0.1'; // review server keeps the old /answer path; the deployed site writes votes
 const saveAnswer = (q, answer, extra) => (DEMO ? Promise.resolve() : LOCAL ? postJSON('/answer', { qid: q.id, type: q.type, ...extra }) : submitVote(q, answer));
 const undoSave = (q) => (DEMO ? Promise.resolve() : LOCAL ? postJSON('/undo', {}) : deleteVote(q.id));
+const FAIL = LOCAL ? SAVE_FAIL : 'Could not save your answer. Wait a few seconds and try again.';
 
 export function mount(root, ctx) {
   const history = []; // {q, saved, counted}
@@ -201,7 +202,7 @@ export function mount(root, ctx) {
     if (extra.scene && extra.scene !== 'skip') { lastScene = extra.scene; ls.set(LAST, lastScene); }
     const counted = r.ok && !skipped;
     if (counted) { answered++; ls.set(KEY, String(answered)); }
-    note = r.ok ? '' : SAVE_FAIL;
+    note = r.ok ? '' : FAIL;
     store.questions.shift(); // optimistic: also advance when the server is absent
     history.push({ q, saved: r.ok, counted });
     ui = { search: false, other: false };
@@ -215,7 +216,7 @@ export function mount(root, ctx) {
     busy = true;
     if (h.saved) {
       const r = await undoSave(h.q);
-      if (!r.ok) { busy = false; note = SAVE_FAIL; render(); return; }
+      if (!r.ok) { busy = false; note = FAIL; render(); return; }
     }
     busy = false;
     history.pop();

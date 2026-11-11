@@ -8,12 +8,18 @@ service cloud.firestore {
     }
     function validStudent() {
       return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
         && request.auth.token.email_verified == true
         && request.auth.token.email.matches('^rkmv[0-9]+@gmail\\.com$');
     }
     function regno() { return request.auth.token.email.split('@')[0].split('rkmv')[1]; }
     function rosterExists(r) {
       return exists(/databases/$(database)/documents/roster/$(r));
+    }
+    // meta/config {approval: 'auto'|'admin'}; a missing doc means auto
+    function approvalRequired() {
+      return exists(/databases/$(database)/documents/meta/config)
+        && get(/databases/$(database)/documents/meta/config).data.approval == 'admin';
     }
     function approved() {
       return signedIn()
@@ -32,7 +38,8 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.regno == regno()
         && request.resource.data.pid == get(/databases/$(database)/documents/roster/$(regno())).data.pid
-        && request.resource.data.status == 'approved'; // the roster is the gate; an admin can still block
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.status == (approvalRequired() ? 'pending' : 'approved'); // auto: the roster is the gate; an admin can still block
       allow read: if admin() || (signedIn() && uid == request.auth.uid);
       allow update: if admin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
@@ -41,19 +48,24 @@ service cloud.firestore {
     }
     match /votes/{voteId} {
       allow read: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
-      allow create, update: if signedIn()
-        && request.resource.data.keys().hasOnly(['qid', 'qtype', 'uid', 'regno', 'answer', 'ts'])
-        && request.resource.data.uid == request.auth.uid
-        && ((request.resource.data.qtype == 'face' && request.resource.data.qid.matches('^f[A-Za-z0-9:_.-]{1,40}$'))
-          || (request.resource.data.qtype == 'cluster' && request.resource.data.qid.matches('^c[0-9]{1,6}$'))
-          || (request.resource.data.qtype == 'scene' && request.resource.data.qid.matches('^s[A-Za-z0-9_.-]{1,40}$')))
-        && approved()
-        && voteId == request.resource.data.qid + '__' + request.auth.uid
-        && request.resource.data.regno == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.regno
-        && request.resource.data.answer is string
-        && request.resource.data.answer.size() > 0
-        && request.resource.data.answer.size() <= 64
-        && request.resource.data.ts == request.time;
+      function voteOk() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['qid', 'qtype', 'uid', 'regno', 'answer', 'ts'])
+          && d.keys().hasAll(['qid', 'qtype', 'uid', 'regno', 'answer', 'ts'])
+          && d.uid == request.auth.uid
+          && ((d.qtype == 'face' && d.qid.matches('^f[A-Za-z0-9:_.-]{1,40}$'))
+            || (d.qtype == 'cluster' && d.qid.matches('^c[0-9]{1,6}$'))
+            || (d.qtype == 'scene' && d.qid.matches('^s[A-Za-z0-9_.-]{1,40}$')))
+          && approved()
+          && voteId == d.qid + '__' + request.auth.uid
+          && d.regno == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.regno
+          && d.answer is string
+          && d.answer.matches('^[A-Za-z0-9_.:-]{1,64}$')
+          && d.ts == request.time;
+      }
+      allow create: if signedIn() && voteOk();
+      allow update: if signedIn() && voteOk()
+        && request.time > resource.data.ts + duration.value(10, 's');
       allow delete: if signedIn() && approved() && resource.data.uid == request.auth.uid;
     }
     match /people_extra/{pid} {
@@ -70,6 +82,7 @@ service cloud.firestore {
       }
       allow read: if admin() || approved();
       allow create: if approved() && shape()
+        && rosterExists(request.resource.data.reg_no)
         && request.resource.data.addedBy == request.auth.uid
         && request.resource.data.ts == request.time;
       allow update: if admin() && shape()
@@ -81,6 +94,12 @@ service cloud.firestore {
     match /meta/progress {
       allow read: if admin() || approved();
       allow write: if admin();
+    }
+    match /meta/config {
+      allow read: if admin() || validStudent();
+      allow write: if admin()
+        && request.resource.data.keys().hasOnly(['approval'])
+        && request.resource.data.approval in ['auto', 'admin'];
     }
     match /overrides/{qid} {
       allow read: if admin();

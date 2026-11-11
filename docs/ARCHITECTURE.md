@@ -21,17 +21,18 @@ The only custom auth code is one small token check in `functions/_shared/auth.js
 5. The pipeline re-matches faces and rebuilds the data files. Settled questions disappear from the queue.
 
 ## Firestore model
-`roster/{regno}` (seeded, read-only to users) | `users/{uid}` (created `approved` on first sign-in; an admin can block) | `votes/{qid}__{uid}` (one per student per question) | `meta/progress` (single doc on purpose, to protect the read quota) | `overrides/{qid}` (admin only)
+`roster/{regno}` (seeded, read-only to users) | `users/{uid}` (created `approved` on first sign-in, or `pending` in admin approval mode; an admin can block) | `votes/{qid}__{uid}` (one per student per question) | `meta/progress` (single doc on purpose, to protect the read quota) | `meta/config` (`{approval: 'auto'|'admin'}`, admin-writable; a missing doc means `auto`) | `overrides/{qid}` (admin only)
 
 ## Decisions worth knowing
 - **One progress document, not a collection.** 350 students reading 1,200 settled-question docs would blow the 50k-reads-a-day free limit. One doc is one read.
-- **Rules cannot rate-limit**, so the design bounds damage instead: id format and length limits, per-student upload quota, admin Stats.
+- **Approval mode is a switch.** `meta/config.approval` is `auto` (the default, and what a missing doc means), where a roster student is approved on first sign-in, or `admin`, where new users wait as `pending`. Auto suits a roster the school built; admin mode suits one that may hold addresses nobody claimed.
+- **Rules cannot rate-limit**, so the design bounds damage instead: id format and length limits, per-student upload quota, admin Stats. The vote update throttle (10 seconds after the stored `ts`) caps update loops but not delete-then-create loops.
 - **Images are not token-gated.** A Function per image would exceed 100k requests a day on a single grid load. Trade-off documented in the README; unguessable filenames are the planned mitigation.
 - **Face matching proposes, humans decide.** Low-confidence matches never auto-confirm. A cluster answer settles many faces at once, which is why clusters are asked first.
 - **Local pipeline, optional CI.** The heavy steps use environment variables for paths (`RKMV_SOURCE`, `RKMV_PEOPLE`) so the same scripts run on a laptop or a runner.
 
 ## Testing
-- Firestore rules: 7 tests in the emulator (pattern bypass, unverified email, self-approval, vote id forgery, admin needs verified email, id format).
+- Firestore rules: 31 tests in the emulator (pattern bypass, unverified email, self-approval, vote id forgery, admin needs verified email, id format, vote payload shape, the update throttle, the sign-in provider check, approval modes, the `people_extra` roster gate).
 - Functions: 6 tests with a fabricated RSA key and stubbed Firestore and R2 (token forgery, upload magic bytes, size cap, per-student quota, admin routes).
 - Tally: 3 tests with fabricated votes.
 

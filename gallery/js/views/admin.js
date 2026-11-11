@@ -1,6 +1,6 @@
 ﻿import { el } from '../util.js';
 import { getToken, isAdmin, currentProfile } from '../auth.js';
-import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers, listExtraPeople, updateExtraPerson, deleteExtraPerson } from '../admin-data.js';
+import { getProgress, listAllVotes, listOverrides, listUsers, saveOverride, saveProgress, setUserStatus, seedRoster, addRoster, approveUsers, listExtraPeople, updateExtraPerson, deleteExtraPerson, getApprovalMode, setApprovalMode } from '../admin-data.js';
 
 const TABS = ['Users', 'Disputes', 'Uploads', 'Stats', 'New people', 'Export'];
 const api = async (path, options = {}) => {
@@ -63,6 +63,15 @@ export function mount(root) {
   async function users() {
     const list = await listUsers();
     const pending = list.filter((u) => u.status === 'pending');
+    const mode = await getApprovalMode();
+    const toggle = button(mode === 'admin' ? 'Approval: admin approves new students' : 'Approval: automatic (roster is the gate)', async () => {
+      const next = mode === 'admin' ? 'auto' : 'admin';
+      try {
+        await setApprovalMode(next);
+        await render();
+        status.textContent = next === 'admin' ? 'New students will wait for your approval.' : 'New students are approved automatically.'; // after render, which clears status
+      } catch (e) { status.textContent = e.message; }
+    }, 'btn btn-quiet');
     let armed = false;
     const approveAll = button(`Approve all pending (${pending.length})`, async () => {
       if (!pending.length) return;
@@ -86,7 +95,7 @@ export function mount(root) {
         if (added) emails.value = '';
       } catch (e) { status.textContent = e.message; }
     });
-    body.append(el('h2', { text: 'Users' }), el('div', { class: 'rv-actions' }, seed, approveAll),
+    body.append(el('h2', { text: 'Users' }), toggle, el('div', { class: 'rv-actions' }, seed, approveAll),
       el('label', { class: 'muted small', text: 'Add more students (one email per line, or comma-separated)' }), emails, el('div', { class: 'rv-actions' }, addBtn), el('ul', { class: 'plain admin-list' }, list.map((u) => el('li', {},
       el('span', { class: 'admin-main' }, el('strong', { text: u.email || u.uid }), el('span', { class: 'muted small', text: `${u.pid || ''} · ${u.status}` })),
       u.status !== 'approved' && button('Approve', () => changeUser(u.uid, 'approved')),

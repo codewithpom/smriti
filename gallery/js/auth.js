@@ -34,7 +34,8 @@ export async function getToken() {
   return u ? u.getIdToken() : null;
 }
 
-// {uid, status, ...} from users/{uid}, creating it as 'approved' on first sign-in (roster membership is the gate).
+// {uid, status, ...} from users/{uid}, creating it on first sign-in (roster membership is the gate).
+// New users start 'pending' while meta/config says approval is 'admin', otherwise 'approved'.
 // Returns null when the account is not a verified rkmv<digits>@gmail.com student on the roster.
 // Not cached: the sign-in gate re-reads it on "Check again", so an approval shows up without a reload.
 export async function currentProfile() {
@@ -47,7 +48,12 @@ export async function currentProfile() {
   const regno = m[1];
   const roster = await getDoc(doc(db, 'roster', regno));
   if (!roster.exists()) return null;
-  const profile = { email: u.email, regno, pid: roster.data().pid, status: 'approved', createdAt: serverTimestamp() };
+  let status = 'approved';
+  try {
+    const config = await getDoc(doc(db, 'meta', 'config'));
+    if (config.exists() && config.data().approval === 'admin') status = 'pending';
+  } catch { /* unreadable config counts as automatic approval */ }
+  const profile = { email: u.email, regno, pid: roster.data().pid, status, createdAt: serverTimestamp() };
   await setDoc(ref, profile);
   return { uid: u.uid, ...profile };
 }

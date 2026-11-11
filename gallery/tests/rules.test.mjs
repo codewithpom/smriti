@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 const projectId = 'demo-rkmv-gallery';
 let env;
@@ -14,6 +14,8 @@ beforeEach(async () => {
   await env.withSecurityRulesDisabled(async ctx => {
     const db = ctx.firestore();
     await setDoc(doc(db, 'roster/1234'), { pid: 'S1234', name: 'Fixture' });
+    await setDoc(doc(db, 'roster/0001'), { pid: 'S0001', name: 'Fixture' });
+    await setDoc(doc(db, 'roster/0002'), { pid: 'S0002', name: 'Fixture' });
     await setDoc(doc(db, 'users/approved'), { email: 'rkmv1234@gmail.com', regno: '1234', pid: 'S1234', status: 'approved' });
     await setDoc(doc(db, 'users/pending'), { email: 'rkmv1234@gmail.com', regno: '1234', pid: 'S1234', status: 'pending' });
     await setDoc(doc(db, 'votes/fq1__approved'), { qid: 'fq1', uid: 'approved', regno: '1234', answer: 'S5678', ts: serverTimestamp() });
@@ -21,8 +23,10 @@ beforeEach(async () => {
 });
 after(async () => env?.cleanup());
 
-const auth = (uid, email, email_verified = true) => env.authenticatedContext(uid, { email, email_verified }).firestore();
-const admin = () => env.authenticatedContext('admin', { email: 'codewithpom@gmail.com', email_verified: true }).firestore();
+const google = { sign_in_provider: 'google.com' }; // the emulator default is 'custom'
+const auth = (uid, email, email_verified = true, firebase = google) => env.authenticatedContext(uid, { email, email_verified, firebase }).firestore();
+const admin = () => env.authenticatedContext('admin', { email: 'codewithpom@gmail.com', email_verified: true, firebase: google }).firestore();
+const setApproval = (approval) => env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), 'meta/config'), { approval }));
 const vote = (uid, regno = '1234', qid = 'fq1') => ({ qid, qtype: 'face', uid, regno, answer: 'S1234', ts: serverTimestamp() });
 
 test('valid verified student can read own roster; wrong pattern and unverified cannot', async () => {
@@ -33,15 +37,41 @@ test('valid verified student can read own roster; wrong pattern and unverified c
   assert.equal((await assertSucceeds(getDoc(doc(auth('missing', 'rkmv9999@gmail.com'), 'roster/9999')))).exists(), false);
   await assertFails(getDoc(doc(auth('nosy', 'rkmv9999@gmail.com'), 'roster/1234')));
 });
-test('a roster student is approved on first sign-in; nobody else, and nobody can change status themselves', async () => {
+const profile = (status, createdAt = serverTimestamp()) => ({ email: 'rkmv1234@gmail.com', regno: '1234', pid: 'S1234', status, createdAt });
+test('auto mode: a roster student is approved on first sign-in; nobody else, and nobody can change status themselves', async () => {
   const db = auth('new', 'rkmv1234@gmail.com');
-  const profile = (status) => ({ email: 'rkmv1234@gmail.com', regno: '1234', pid: 'S1234', status, createdAt: new Date() });
-  await assertFails(setDoc(doc(db, 'users/new'), profile('pending'))); // no waiting room: the only valid start state is approved
+  await assertFails(setDoc(doc(db, 'users/new'), profile('pending')));
   await assertFails(setDoc(doc(db, 'users/new'), profile('blocked')));
   await assertSucceeds(setDoc(doc(db, 'users/new'), profile('approved')));
   await assertFails(updateDoc(doc(db, 'users/new'), { status: 'blocked' })); // students cannot touch their own status
+  await assertFails(updateDoc(doc(db, 'users/new'), { status: 'approved' }));
   const stranger = auth('stranger', 'rkmv9999@gmail.com'); // valid pattern, not on the roster
   await assertFails(setDoc(doc(stranger, 'users/stranger'), { ...profile('approved'), email: 'rkmv9999@gmail.com', regno: '9999', pid: 'S9999' }));
+});
+test('admin approval mode: first sign-in must be pending', async () => {
+  await setApproval('admin');
+  const db = auth('new', 'rkmv1234@gmail.com');
+  await assertFails(setDoc(doc(db, 'users/new'), profile('approved')));
+  await assertSucceeds(setDoc(doc(db, 'users/new'), profile('pending')));
+  await assertFails(updateDoc(doc(db, 'users/new'), { status: 'approved' })); // only an admin approves
+  await assertSucceeds(updateDoc(doc(admin(), 'users/new'), { status: 'approved' }));
+});
+test('approval mode set back to auto behaves like a missing config doc', async () => {
+  await setApproval('auto');
+  await assertSucceeds(setDoc(doc(auth('new', 'rkmv1234@gmail.com'), 'users/new'), profile('approved')));
+});
+test('first sign-in needs a server createdAt and a Google provider', async () => {
+  await assertFails(setDoc(doc(auth('new', 'rkmv1234@gmail.com'), 'users/new'), profile('approved', new Date())));
+  await assertFails(setDoc(doc(auth('new', 'rkmv1234@gmail.com', true, { sign_in_provider: 'password' }), 'users/new'), profile('approved')));
+  await assertSucceeds(setDoc(doc(auth('new', 'rkmv1234@gmail.com'), 'users/new'), profile('approved')));
+});
+test('only admin writes meta/config, with a valid value; a valid student can read it', async () => {
+  await assertFails(setDoc(doc(auth('approved', 'rkmv1234@gmail.com'), 'meta/config'), { approval: 'admin' }));
+  await assertSucceeds(setDoc(doc(admin(), 'meta/config'), { approval: 'admin' }));
+  await assertFails(setDoc(doc(admin(), 'meta/config'), { approval: 'x' }));
+  await assertFails(setDoc(doc(admin(), 'meta/config'), { approval: 'auto', extra: 1 }));
+  await assertSucceeds(getDoc(doc(auth('s', 'rkmv1234@gmail.com'), 'meta/config')));
+  await assertFails(getDoc(doc(auth('bad', 'student1234@gmail.com'), 'meta/config')));
 });
 test('admin can add a student to the roster and block a user; a blocked user cannot vote', async () => {
   await assertSucceeds(setDoc(doc(admin(), 'roster/5678'), { pid: 'S5678' }, { merge: true }));
@@ -82,6 +112,21 @@ test('vote ids must be well-formed and match the question type', async () => {
   const long = 'f' + 'x'.repeat(60);
   await assertFails(setDoc(doc(db, `votes/${long}__approved`), vote('approved', '1234', long)));
 });
+test('vote updates are throttled to one per 10 seconds', async () => {
+  const db = auth('approved', 'rkmv1234@gmail.com');
+  await assertFails(setDoc(doc(db, 'votes/fq1__approved'), vote('approved'))); // fixture vote was just written
+  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), 'votes/fq1__approved'),
+    { qid: 'fq1', qtype: 'face', uid: 'approved', regno: '1234', answer: 'S5678', ts: Timestamp.fromMillis(Date.now() - 60000) }));
+  await assertSucceeds(setDoc(doc(db, 'votes/fq1__approved'), vote('approved')));
+});
+test('votes need every key and a short plain answer', async () => {
+  const db = auth('approved', 'rkmv1234@gmail.com');
+  const { regno, ...noRegno } = vote('approved', '1234', 'fq2');
+  await assertFails(setDoc(doc(db, 'votes/fq2__approved'), noRegno));
+  await assertFails(setDoc(doc(db, 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), answer: 'S 1234' }));
+  await assertFails(setDoc(doc(db, 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), answer: 'S'.repeat(65) }));
+  await assertSucceeds(setDoc(doc(db, 'votes/fq2__approved'), { ...vote('approved', '1234', 'fq2'), answer: 'S'.repeat(64) }));
+});
 test('admin needs a verified email', async () => {
   const unverified = env.authenticatedContext('admin', { email: 'codewithpom@gmail.com', email_verified: false }).firestore();
   await assertFails(updateDoc(doc(unverified, 'users/pending'), { status: 'approved' }));
@@ -111,6 +156,11 @@ for (const [label, pid, patch] of [
   ['fake timestamp', 'S0001', { ts: new Date(0) }],
 ]) test(`new people reject ${label}`, async () => {
   await assertFails(setDoc(doc(student(), 'people_extra/' + pid), { ...extraPerson(), ...patch }));
+});
+
+test('new people need a roster doc for their registration', async () => {
+  await assertFails(setDoc(doc(student(), 'people_extra/S0003'), { ...extraPerson(), reg_no: '0003' }));
+  await assertSucceeds(setDoc(doc(student(), 'people_extra/S0001'), extraPerson()));
 });
 
 for (const state of ['pending', 'blocked', 'unauthenticated']) test(`${state} cannot create or read new people`, async () => {
