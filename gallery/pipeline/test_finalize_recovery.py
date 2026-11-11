@@ -1,7 +1,6 @@
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -56,8 +55,10 @@ class FinalizeRecoveryTest(unittest.TestCase):
         self.remote.put("state/catalog.json", b"private catalog sentinel")
         return baseline, avatar_path, legacy_path
 
-    def test_replaces_only_avatar_baseline_and_seeds_exact_image_manifest(self):
+    def test_publishes_only_canonical_avatar_and_seeds_exact_hash_manifest(self):
         _, avatar_path, legacy_path = self._seed_baseline()
+        original_baseline = self.remote.get(finalizer.BASELINE_KEY)
+        original_metadata = self.remote.get(finalizer.BASELINE_META_KEY)
         expected_gallery = self.root / "expected"
         expected_data = expected_gallery / "data"
         expected_data.mkdir(parents=True)
@@ -73,16 +74,11 @@ class FinalizeRecoveryTest(unittest.TestCase):
         result = finalizer.finalize(self.backup, self.remote, image_key=self.key)
         self.assertEqual(result, {"avatars": 1, "assets": 2})
         self.assertEqual(self.remote.get("state/catalog.json"), b"private catalog sentinel")
-
-        restored = self._unpack_baseline()
-        self.assertEqual((restored / avatar_path).read_bytes(), expected_avatar)
-        self.assertEqual((restored / legacy_path).read_bytes(), b"old URL alias")
-        metadata = self.remote.get_json(finalizer.BASELINE_META_KEY)
-        self.assertEqual(metadata["paths"], sorted([avatar_path, legacy_path]))
-        self.assertEqual(metadata["sha256"], finalizer._baseline_digest(restored, metadata["paths"]))
-
+        self.assertEqual(self.remote.get(finalizer.BASELINE_KEY), original_baseline)
+        self.assertEqual(self.remote.get(finalizer.BASELINE_META_KEY), original_metadata)
+        self.assertEqual(self.remote.get(f"img/{avatar_path}"), expected_avatar)
         manifest = self.remote.get_json(finalizer.IMAGE_MANIFEST_KEY)
-        self.assertEqual(manifest, {path: hashlib.sha1((restored / path).read_bytes()).hexdigest() for path in metadata["paths"]})
+        self.assertEqual(manifest, {avatar_path: hashlib.sha1(expected_avatar).hexdigest()})
         self.assertNotIn("S0001", " ".join(manifest))
         writes_after_first = self.remote.stats["writes"]
         self.assertEqual(finalizer.finalize(self.backup, self.remote, image_key=self.key), {"avatars": 1, "assets": 2})
@@ -129,51 +125,41 @@ class FinalizeRecoveryTest(unittest.TestCase):
         for key, value in before.items():
             self.assertEqual(self.remote.get(key), value)
 
-    def test_storage_preflight_accounts_for_existing_versioned_object(self):
-        self.assertEqual(finalizer._put_write_units(finalizer.CHUNK_SIZE), 1)
-        self.assertEqual(finalizer._put_write_units(finalizer.CHUNK_SIZE + 1), 3)
-
+    def test_storage_preflight_counts_avatar_bytes_before_any_put(self):
         class FakeKV(LocalRemote):
             backend = "kv"
 
         store = FakeKV(self.root / "fake-kv")
-        store.put("state/old", b"x" * 10)
+        store.put("state/existing", b"x" * 15)
+        upload = [("img/avatar.webp", b"y" * 6, "image/webp")]
         with patch.object(finalizer, "MAX_KV_STORAGE_BYTES", 20), \
                 patch.object(finalizer, "KV_STORAGE_RESERVE_BYTES", 0):
-            with self.assertRaises(finalizer.FinalizeError):
-                finalizer._preflight_storage(store, "state/new", 11)
-            store.put("state/new", b"x" * 4)
-            finalizer._preflight_storage(store, "state/new", 10)
+            with self.assertRaises(finalizer.FinalizeError) as raised:
+                finalizer._preflight_storage(store, upload)
+        self.assertEqual(raised.exception.code, "kv_storage_preflight_failed")
+        self.assertIsNone(store.get("img/avatar.webp"))
 
-    def test_retry_repairs_metadata_after_archive_write_succeeds(self):
-        baseline, avatar_path, _ = self._seed_baseline()
-        original_bytes = (baseline / avatar_path).read_bytes()
-        original_put_json = self.remote.put_json
+    def test_retry_skips_avatar_put_completed_before_manifest_failure(self):
+        _, avatar_path, _ = self._seed_baseline()
+        original_baseline = self.remote.get(finalizer.BASELINE_KEY)
+        original_put_many = self.remote.put_many
 
-        def fail_metadata_once(key, value):
-            if key == finalizer.BASELINE_META_KEY:
-                raise OSError("simulated metadata write failure")
-            return original_put_json(key, value)
+        def put_then_fail(items):
+            original_put_many(items)
+            raise OSError("simulated manifest-stage failure")
 
-        with patch.object(self.remote, "put_json", side_effect=fail_metadata_once):
+        with patch.object(self.remote, "put_many", side_effect=put_then_fail):
             with self.assertRaises(OSError):
                 finalizer.finalize(self.backup, self.remote, image_key=self.key)
+        self.assertEqual(self.remote.get(finalizer.BASELINE_KEY), original_baseline)
         self.assertIsNone(self.remote.get(finalizer.IMAGE_MANIFEST_KEY))
-        stale_metadata = self.remote.get_json(finalizer.BASELINE_META_KEY)
-        self.assertNotIn("object", stale_metadata)
-        original_restored = self._unpack_original()
-        self.assertTrue(self.remote.unpack_get(finalizer.BASELINE_KEY, original_restored))
-        self.assertEqual((original_restored / avatar_path).read_bytes(), original_bytes)
-        writes_after_stage = self.remote.stats["writes"]
+        writes_after_avatar = self.remote.stats["writes"]
 
         result = finalizer.finalize(self.backup, self.remote, image_key=self.key)
         self.assertEqual(result, {"avatars": 1, "assets": 2})
-        self.assertEqual(self.remote.stats["writes"] - writes_after_stage, 2)
-        restored = self._unpack_baseline()
-        metadata = self.remote.get_json(finalizer.BASELINE_META_KEY)
-        self.assertEqual(metadata["sha256"], finalizer._baseline_digest(restored, metadata["paths"]))
-        self.assertEqual(self.remote.get_json(finalizer.IMAGE_MANIFEST_KEY)[avatar_path],
-                         hashlib.sha1((restored / avatar_path).read_bytes()).hexdigest())
+        self.assertEqual(self.remote.stats["writes"] - writes_after_avatar, 1)
+        manifest = self.remote.get_json(finalizer.IMAGE_MANIFEST_KEY)
+        self.assertEqual(manifest[avatar_path], hashlib.sha1(self.remote.get(f"img/{avatar_path}")).hexdigest())
 
     def test_rejects_wrong_key_and_inconsistent_baseline_without_mutation(self):
         self._seed_baseline()
@@ -188,32 +174,6 @@ class FinalizeRecoveryTest(unittest.TestCase):
             finalizer.finalize(self.backup, self.remote, image_key=self.key)
         self.assertEqual(self.remote.get(finalizer.BASELINE_KEY), corrupt)
         self.assertIsNone(self.remote.get(finalizer.IMAGE_MANIFEST_KEY))
-
-    def test_rejects_same_path_non_avatar_corruption_in_referenced_version(self):
-        _, _, legacy_path = self._seed_baseline()
-        finalizer.finalize(self.backup, self.remote, image_key=self.key)
-        metadata = self.remote.get_json(finalizer.BASELINE_META_KEY)
-        manifest = self.remote.get(finalizer.IMAGE_MANIFEST_KEY)
-        tampered = self._unpack_baseline()
-        (tampered / legacy_path).write_bytes(b"tampered old URL alias")
-        self.remote.pack_put(metadata["object"], tampered)
-
-        with self.assertRaises(finalizer.FinalizeError):
-            finalizer.finalize(self.backup, self.remote, image_key=self.key)
-        self.assertEqual(self.remote.get(finalizer.IMAGE_MANIFEST_KEY), manifest)
-
-    def _unpack_baseline(self):
-        path = self.root / "baseline-inspect"
-        shutil.rmtree(path, ignore_errors=True)
-        metadata = self.remote.get_json(finalizer.BASELINE_META_KEY)
-        self.assertTrue(self.remote.unpack_get(metadata.get("object", finalizer.BASELINE_KEY), path))
-        return path
-
-    def _unpack_original(self):
-        path = self.root / "baseline-original"
-        shutil.rmtree(path, ignore_errors=True)
-        return path
-
 
 if __name__ == "__main__":
     unittest.main()

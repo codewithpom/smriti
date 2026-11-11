@@ -233,23 +233,20 @@ class ScanTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ci_scan._copy_missing_images(self.local, cache, dest2)
 
-    def test_versioned_baseline_manifest_blocks_stale_overlay_but_allows_updates(self):
-        baseline = self.root / "versioned-baseline"
+    def test_baseline_manifest_blocks_stale_overlay_but_allows_updates(self):
+        baseline = self.root / "baseline-overlay"
         baseline.mkdir()
         expected = b"canonical-avatar-01"
         stale = b"stale-avatar-------"
         self.assertEqual(len(stale), len(expected))
         (baseline / "avatar.webp").write_bytes(expected)
-        version = hashlib.sha256(b"versioned baseline fixture").hexdigest()
-        object_key = f"state/published-assets/{version}.tar.gz"
-        self.local.pack_put(object_key, baseline)
-        self.local.put_json("state/published-assets.json", {
-            "sha256": version, "paths": ["avatar.webp"], "object": object_key,
-        })
+        version = hashlib.sha256(b"baseline fixture").hexdigest()
+        self.local.pack_put("state/published-assets.tar.gz", baseline)
+        self.local.put_json("state/published-assets.json", {"sha256": version, "paths": ["avatar.webp"]})
         self.local.put_json("state/manifest/img.json", {"avatar.webp": hashlib.sha1(expected).hexdigest()})
         self.local.put("img/avatar.webp", stale)
 
-        cache, dest = self.root / "versioned-cache", self.root / "versioned-published"
+        cache, dest = self.root / "baseline-cache", self.root / "baseline-published"
         ci_scan._copy_missing_images(self.local, cache, dest)
         self.assertEqual((dest / "avatar.webp").read_bytes(), expected)
         self.assertEqual((cache / "avatar.webp").read_bytes(), expected)
@@ -257,7 +254,7 @@ class ScanTest(unittest.TestCase):
         updated = b"updated-avatar-bytes"
         self.local.put("img/avatar.webp", updated)
         self.local.put_json("state/manifest/img.json", {"avatar.webp": hashlib.sha1(updated).hexdigest()})
-        dest2 = self.root / "versioned-published-updated"
+        dest2 = self.root / "baseline-published-updated"
         ci_scan._copy_missing_images(self.local, cache, dest2)
         self.assertEqual((dest2 / "avatar.webp").read_bytes(), updated)
 
