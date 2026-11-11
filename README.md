@@ -138,16 +138,24 @@ The face pipeline needs `insightface`, `onnxruntime`, `numpy`, `scipy` and `pill
 
 ### Automatic ingest (GitHub Actions)
 
-After the first deploy, the `scan` workflow takes over processing and publishing for the real site. It never uses the repo's `wrangler.toml`, which binds the demo. It writes its own, binding `PHOTOS` to the chosen storage.
+After the first deploy, the `scan` workflow takes over processing and publishing for the real site. The default branch schedules and forwards scans; the pipeline runs from the `automation/scan` branch. Manual dispatches from the default branch are forwarded there with their selected options. The workflow never uses the repo's `wrangler.toml`, which binds the demo. It writes its own, binding `PHOTOS` to the chosen storage. The workflow's default `GITHUB_TOKEN` needs Actions write permission to dispatch the scan branch.
 
 1. **GitHub variables:** `STORAGE_BACKEND` (`kv` or `r2`), `PAGES_PROJECT`, `FIREBASE_PROJECT_ID`.
 2. **GitHub secrets:** `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Pages: Edit, plus Workers KV: Edit for kv mode), `IMG_KEY` (the content of `gallery/pipeline/.secrets/img-key.txt`, so image names stay stable). For kv mode add `CF_KV_NAMESPACE_ID`. For r2 mode add `R2_BUCKET`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`.
-3. **Pages secret** `GITHUB_DISPATCH_TOKEN`: a fine-grained token for this repo only, with Actions read/write and Variables read/write. It lets uploads start the workflow and lets the storage radio set `STORAGE_BACKEND`.
+3. **Pages secret** `GITHUB_DISPATCH_TOKEN`: a fine-grained token for this repo only, with Actions read/write and Variables read/write. It lets uploads start the workflow on `automation/scan` and lets the storage radio set `STORAGE_BACKEND`.
 4. **Seed once from your machine.** Run `python gallery/pipeline/ci_scan.py --backfill-hashes <albums dir>` (adds the hashes and marks existing duplicates). Then run `obfuscate.py --src gallery --out <dir>` and `python gallery/pipeline/remote.py seed --data gallery/data --site <dir> --people <people dir>` (`--site` is the obfuscate output, so the served JSON and the stored images use the same renamed paths), adding `--originals <albums dir>` on R2. The seed respects the KV daily write budget, so rerun it the next day if it stops early.
 
 A run costs nothing when nothing is pending (the daily cron exits in seconds). Uploads in a burst share one queued run.
 
 Seed the complete private catalog before enabling ingest on an existing gallery. The scanner refuses to rebuild if any published photo is absent from the stored catalog, preserving the live archive and queued uploads until seeding is complete. The served JSON alone cannot replace the original pipeline state and face embeddings.
+
+### Recovery backups
+
+The `Recover archive` workflow runs only on `automation/scan`. It decrypts recovery inputs on the runner, rebuilds embeddings, preserves historical photo IDs and face labels, verifies the rebuilt gallery, and seeds private storage. It encrypts the rebuilt state before committing a backup to that branch. No plaintext photos, names, embeddings, image keys, or cookies are committed or uploaded as Actions artifacts. Published data switches only after its static images deploy successfully.
+
+Public backup directories contain AES-256-GCM ciphertext chunks and cryptographic metadata. `RECOVERY_BACKUP_PASSWORD` is a separate GitHub Actions secret; keep an independent copy in a password manager because GitHub secrets cannot be read back. `IMG_KEY` is the regenerated image-name key. Losing the old key requires new URLs; recovery retains the deployed image URLs as aliases. Tiny historical faces that cannot be detected again retain their labels and positions with an explicit missing-embedding marker; they never become recognition references.
+
+To restore an encrypted snapshot locally, install `cryptography==48.0.0`, supply `RECOVERY_BACKUP_PASSWORD` through the environment, and run `python gallery/pipeline/encrypted_backup.py unpack backups/recovery <private-empty-directory>`. Keep the result outside tracked paths. The encrypted bootstrap includes deployed web-sized photos; it does not recreate deleted full-resolution originals. Private KV uses packed image and portrait baselines to avoid thousands of initial writes, and later scans upload only new files.
 
 The `rkmv<number>@gmail.com` email pattern belongs to the school this was built for. Change it in `firestore.rules`, `gallery/js/auth.js` and `gallery/functions/_shared/auth.js` for your own deployment.
 

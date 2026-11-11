@@ -3,6 +3,7 @@
 import { storage, getJson, putJson } from './store.js';
 
 const WORKFLOW = 'scan.yml';
+const SCAN_BRANCH = 'automation/scan';
 const QUEUED_FOR_MS = 10 * 60 * 1000; // a queued run drains every pending upload, so a burst needs only one dispatch
 
 export function config(env) {
@@ -33,7 +34,7 @@ async function github(env, path, { method = 'GET', body } = {}) {
 
 export async function dispatch(env, inputs = {}) {
   const strings = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, String(v)]));
-  const response = await github(env, `/actions/workflows/${WORKFLOW}/dispatches`, { method: 'POST', body: { ref: 'main', inputs: strings } });
+  const response = await github(env, `/actions/workflows/${WORKFLOW}/dispatches`, { method: 'POST', body: { ref: SCAN_BRANCH, inputs: strings } });
   return response?.status === 204;
 }
 

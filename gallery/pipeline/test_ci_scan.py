@@ -203,6 +203,35 @@ class ScanTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 ci_scan.main([])
 
+    def test_packed_recovery_images_and_portraits(self):
+        baseline = self.root / "baseline"
+        baseline.mkdir()
+        (baseline / "old.webp").write_bytes(b"baseline")
+        self.local.pack_put("state/published-assets.tar.gz", baseline)
+        self.local.put_json("state/published-assets.json", {"sha256": "version1", "paths": ["old.webp"]})
+        self.local.put("img/new.webp", b"new")
+        cache, dest = self.root / "cache", self.root / "published"
+        self.assertEqual(ci_scan._copy_missing_images(self.local, cache, dest), 2)
+        self.assertEqual((dest / "old.webp").read_bytes(), b"baseline")
+        self.assertEqual((dest / "new.webp").read_bytes(), b"new")
+        # A previously cached incremental asset removed from storage stays removed.
+        self.local.delete(["img/new.webp"])
+        dest2 = self.root / "published2"
+        self.assertEqual(ci_scan._copy_missing_images(self.local, cache, dest2), 1)
+        self.assertFalse((dest2 / "new.webp").exists())
+        portraits = self.root / "packed-portraits"
+        portraits.mkdir()
+        (portraits / "identities.json").write_text('{"students":[],"staff":[]}')
+        (portraits / "portrait.jpg").write_bytes(b"portrait")
+        self.local.pack_put("state/people.tar.gz", portraits)
+        ci_scan._pull(self.local)
+        self.assertEqual((self.people / "portrait.jpg").read_bytes(), b"portrait")
+        self.assertEqual(json.loads((self.people / "identities.json").read_text()), {"people": []})
+        # Individual people/ files intentionally override the packed baseline.
+        self.local.put_json("state/published-assets.json", {"sha256": "bad", "paths": ["../escape.webp"]})
+        with self.assertRaises(ValueError):
+            ci_scan._copy_missing_images(self.local, cache, dest2)
+
     def test_backfill_marks_duplicate(self):
         source = self.root / "albums"
         album = source / "same"

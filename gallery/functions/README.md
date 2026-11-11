@@ -8,7 +8,7 @@ Run the function unit tests with `node --test functions/tests/*.test.mjs` from `
 
 ## Ingest, upload status, and storage endpoints
 - `POST/GET/DELETE /api/admin/fb-cookies`: Facebook session cookies for the `scan` workflow. Write-only: `GET` returns presence, size and date, never the cookies. Stored under `secrets/fb-cookies.txt` (and the optional page URL under `secrets/fb-url.txt`) in the `PHOTOS` store.
-- `POST/GET /api/admin/scan`: dispatches / reads the latest run of `.github/workflows/scan.yml`. The POST accepts `fetchFacebook`, `recluster`, `reembed`, and `migrateFrom` (`kv` or `r2`).
+- `POST/GET /api/admin/scan`: dispatches to / reads the latest run of `.github/workflows/scan.yml`. Dispatches target `automation/scan`; the POST accepts `fetchFacebook`, `recluster`, `reembed`, and `migrateFrom` (`kv` or `r2`).
 - `POST/GET /api/admin/uploads`: lists processed review items and raw pending count; POST `{photo, action}` writes an approval/rejection marker for the pipeline.
 - `GET /api/uploads/mine`: approved users see their processed upload states and raw uploads still queued.
 - `GET/POST /api/admin/storage`: reads storage backend setting and usage, or sets `STORAGE_BACKEND` to `kv`/`r2`.

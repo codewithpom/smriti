@@ -292,11 +292,13 @@ def extract(reembed=False):
         found = []
         for f in json.loads(cf.read_text(encoding="utf-8")):
             x1, y1, x2, y2 = f["b"]; W, H = f["w"], f["h"]
-            if f["d"] < MIN_DET:
+            if f["d"] < MIN_DET and not f.get("embedding_missing"):
                 continue
             px = int(min(x2 - x1, y2 - y1))
             found.append({"bbox": [round(x1 / W, 4), round(y1 / H, 4), round((x2 - x1) / W, 4), round((y2 - y1) / H, 4)],
                           "det": round(f["d"], 3), "px": px, "q": f.get("q", quality_without_crop(f["d"], px)), "e": len(embs)})
+            if f.get("embedding_missing"):
+                found[-1]["embedding_missing"] = True
             vector = np.asarray(f["v"], dtype=np.float32)
             if len(vector) == 512 and dim == 1024:
                 # Legacy rows have no AdaFace view: preserve their unit R50 vector,
@@ -363,6 +365,8 @@ def prototype_bank(raw, emb, ref_emb, ref_ids, face_fix):
     core = {}
     for row in raw:
         for i, face in enumerate(row["faces"]):
+            if face.get("embedding_missing"):
+                continue   # preserve historical labels without treating missing biometrics as references
             pid = face_fix.get(f"{row['photo']}:{i}")
             if pid and pid != "none":
                 vector, q = emb[face["e"]], face_q(face)

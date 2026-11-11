@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from faces import decide, rank_persons
+from faces import decide, rank_persons, prototype_bank
 
 
 def vector(x):
@@ -10,6 +10,12 @@ def vector(x):
 
 
 class DecideTest(unittest.TestCase):
+    def test_missing_recovered_embeddings_never_become_reference_faces(self):
+        raw = [{"photo": "p1", "faces": [{"e": 0, "embedding_missing": True, "px": 80}]}]
+        vectors, ids = prototype_bank(raw, np.array([vector(0)]), np.array([vector(1)]), ["known"], {"p1:0": "missing"})
+        self.assertEqual(ids, ["known"])
+        np.testing.assert_array_equal(vectors, np.array([vector(1)]))
+
     def test_max_and_top3_hand_computed(self):
         bank = np.array([vector(x) for x in (1.0, 0.0, 0.0, 0.6)])
         ids = ["alpha", "alpha", "alpha", "beta"]

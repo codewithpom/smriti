@@ -434,7 +434,7 @@ def usage(remote):
     return result
 
 
-STATE_ALLOWLIST = ("corrections.json", "catalog.json", "ref_emb.npy", "ref_ids.json", "ref_src.json", "ref_failed.json", "extra_*.json", "manual_aliases.json", "people_meta.json", "auto_people.json", "aliases.json", "tags_shard_*.json", "face_emb.npy", "faces_raw.json", "faces.json", "hashes.json", "fb_archive.sqlite3", "extra_refs/**/*")   # "dir/**" alone matches only folders in pathlib
+STATE_ALLOWLIST = ("corrections.json", "catalog.json", "ref_emb.npy", "ref_ids.json", "ref_src.json", "ref_failed.json", "extra_*.json", "manual_aliases.json", "people_meta.json", "auto_people.json", "aliases.json", "tags_shard_*.json", "face_emb.npy", "faces_raw.json", "faces.json", "hashes.json", "recovery_*.json", "fb_archive.sqlite3", "extra_refs/**/*")   # "dir/**" alone matches only folders in pathlib
 SITE_JSON = ("photos", "people", "graph", "questions", "clusters")
 
 

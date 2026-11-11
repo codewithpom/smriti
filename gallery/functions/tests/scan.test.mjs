@@ -18,7 +18,7 @@ test('scan dispatch sends exact URL, headers and string inputs', async () => {
     assert.equal(call.url, 'https://api.github.com/repos/owner/name/actions/workflows/scan.yml/dispatches');
     assert.equal(call.method, 'POST');
     assert.deepEqual(call.headers, { Authorization: 'Bearer fake-test-token', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'smriti-admin', 'Content-Type': 'application/json' });
-    assert.deepEqual(JSON.parse(call.body), { ref: 'main', inputs: { fetch_facebook: String(!!body.fetchFacebook), recluster: String(!!body.recluster), reembed: String(!!body.reembed), migrate_from: body.migrateFrom ?? '' } });
+    assert.deepEqual(JSON.parse(call.body), { ref: 'automation/scan', inputs: { fetch_facebook: String(!!body.fetchFacebook), recluster: String(!!body.recluster), reembed: String(!!body.reembed), migrate_from: body.migrateFrom ?? '' } });
   }
 });
 test('scan denies non-admins and missing or invalid configuration', async () => {

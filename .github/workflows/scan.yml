@@ -21,7 +21,67 @@ concurrency:
   group: scan-pipeline
   cancel-in-progress: false
 jobs:
+  dispatch-scan:
+    # The default branch only schedules or forwards requests. The private-data
+    # pipeline itself runs from automation/scan.
+    if: ${{ github.ref != 'refs/heads/automation/scan' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      FETCH_FACEBOOK: ${{ inputs.fetch_facebook }}
+      RECLUSTER: ${{ inputs.recluster }}
+      REEMBED: ${{ inputs.reembed }}
+      EVAL: ${{ inputs.eval }}
+      MIGRATE_FROM: ${{ inputs.migrate_from }}
+      VERBOSE: ${{ inputs.verbose }}
+    steps:
+      - name: Forward scan to automation branch
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          truthy = lambda name: os.environ.get(name, '').lower() == 'true'
+          inputs = {
+              'fetch_facebook': str(truthy('FETCH_FACEBOOK')).lower(),
+              'recluster': str(truthy('RECLUSTER')).lower(),
+              'reembed': str(truthy('REEMBED')).lower(),
+              'eval': str(truthy('EVAL')).lower(),
+              'migrate_from': os.environ.get('MIGRATE_FROM', ''),
+              'verbose': str(truthy('VERBOSE')).lower(),
+          }
+          payload = json.dumps({'ref': 'automation/scan', 'inputs': inputs}).encode()
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/scan.yml/dispatches",
+              data=payload,
+              headers={
+                  'Authorization': f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          try:
+              with urllib.request.urlopen(request) as response:
+                  if response.status != 204:
+                      print(f'GitHub dispatch failed with status {response.status}', file=sys.stderr)
+                      sys.exit(1)
+          except urllib.error.HTTPError as error:
+              print(f'GitHub dispatch failed with status {error.code}', file=sys.stderr)
+              sys.exit(1)
+          print('Scan dispatched to automation/scan.')
+          PY
+
   scan:
+    if: ${{ github.ref == 'refs/heads/automation/scan' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -44,7 +104,9 @@ jobs:
       GITHUB_RUN_ID: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { persist-credentials: false }
+        with:
+          persist-credentials: false
+          sparse-checkout: gallery
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"

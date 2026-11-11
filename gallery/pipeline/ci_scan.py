@@ -62,6 +62,7 @@ def _status(remote, state, stage, step, steps, started, counts=None):
 
 def _pull(remote):
     PEOPLE.mkdir(parents=True, exist_ok=True)
+    remote.unpack_get("state/people.tar.gz", PEOPLE)
     remote.pull_dir("people/", PEOPLE)
     DATA.mkdir(parents=True, exist_ok=True)
     keys = [key for key, _ in remote.ls("state/")]
@@ -167,8 +168,29 @@ def _copy_missing_images(remote, cache, dest):
     cache, dest = Path(cache), Path(dest)
     cache.mkdir(parents=True, exist_ok=True)
     dest.mkdir(parents=True, exist_ok=True)
+    # A one-time recovery can contain thousands of static assets. Keep that
+    # immutable baseline packed so restoring it fits the free KV write quota.
+    baseline = remote.get_json("state/published-assets.json", None)
+    copied_paths = set()
+    if baseline:
+        version = baseline["sha256"]
+        stamp = cache / ".baseline-version"
+        paths = []
+        for value in baseline["paths"]:
+            path = Path(value)
+            if path.is_absolute() or ".." in path.parts or "\\" in value or ":" in value:
+                raise ValueError("unsafe baseline image path")
+            paths.append(path)
+        if not stamp.exists() or stamp.read_text() != version or any(not (cache / p).is_file() for p in paths):
+            if not remote.unpack_get("state/published-assets.tar.gz", cache):
+                raise RuntimeError("missing baseline image archive")
+            stamp.write_text(version)
+        for path in paths:
+            target = dest / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cache / path, target)
+            copied_paths.add(path.as_posix())
     local_sizes = {p.relative_to(cache).as_posix(): p.stat().st_size for p in cache.rglob("*") if p.is_file()}
-    copied = 0
     for key, size in remote.ls("img/"):
         rel = key[4:]
         target = cache / rel
@@ -181,8 +203,8 @@ def _copy_missing_images(remote, cache, dest):
         out.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file():
             shutil.copyfile(target, out)
-            copied += 1
-    return copied
+            copied_paths.add(rel)
+    return len(copied_paths)
 
 
 def pages_config(env):
