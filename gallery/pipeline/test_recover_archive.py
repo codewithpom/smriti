@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from PIL import Image
@@ -153,12 +154,14 @@ class RecoverArchiveTests(unittest.TestCase):
             cache = data / "fx" / "r50f"
             cache.mkdir(parents=True)
             cache_face = {"b": [600, 50, 800, 150], "k": [[700, 100]] * 5, "w": 1000, "h": 500,
-                          "d": 0.99, "q": 0.8, "v": [1.0, 0.0]}
+                          "d": 0.99, "q": 0.8, "v": [1.0] + [0.0] * 511}
             (cache / f"{photo['id']}.json").write_text(json.dumps([cache_face]), encoding="utf-8")
             raw = [{"photo": photo["id"], "faces": [{"bbox": old_faces[1]["bbox"], "det": 0.99, "px": 100,
                     "q": 0.8, "e": 0}]}]
             (data / "faces_raw.json").write_text(json.dumps(raw), encoding="utf-8")
-            np.save(data / "face_emb.npy", np.asarray([[1.0, 0.0]], dtype=np.float32))
+            vector = np.zeros((1, 512), dtype=np.float32)
+            vector[0, 0] = 1.0
+            np.save(data / "face_emb.npy", vector)
 
             first = recover_archive.restore_face_layout(data, [photo], model_tag="r50f")
             rows = json.loads((data / "faces_raw.json").read_text(encoding="utf-8"))
@@ -171,13 +174,31 @@ class RecoverArchiveTests(unittest.TestCase):
             self.assertEqual([f["bbox"] for f in rows[0]["faces"]], [f["bbox"] for f in old_faces])
             self.assertTrue(rows[0]["faces"][0]["embedding_missing"])
             self.assertFalse(rows[0]["faces"][1].get("embedding_missing", False))
-            self.assertTrue(np.allclose(embeddings[0], [0.0, 0.0]))
-            self.assertTrue(np.allclose(embeddings[1], [1.0, 0.0]))
+            self.assertTrue(np.allclose(embeddings[0], np.zeros(512)))
+            self.assertTrue(np.allclose(embeddings[1], vector[0]))
             self.assertTrue(cache_rows[0]["embedding_missing"])
             self.assertEqual(corrections["faces"], {f"{photo['id']}:0": "S100", f"{photo['id']}:1": "none"})
 
             again = recover_archive.restore_face_layout(data, [photo], model_tag="r50f")
             self.assertEqual(again["missing_embeddings"], 1)
+
+            import faces
+            source = data / "source"
+            (source / "classroom").mkdir(parents=True)
+            write_image(source / "classroom" / "p00000001.webp", (10, 20, 30))
+            old_state = (faces.DATA, faces.SRC, faces.GALLERY, faces.MODEL_TAG)
+            try:
+                faces.DATA, faces.SRC = data, source
+                faces.GALLERY, faces.MODEL_TAG = data.parent / "gallery", "r50f"
+                with patch.object(faces, "load_people", return_value={}), \
+                     patch.object(faces, "_references", return_value=(0, 0, 0)), \
+                     patch.object(faces, "_people_outputs"):
+                    faces.extract()
+            finally:
+                faces.DATA, faces.SRC, faces.GALLERY, faces.MODEL_TAG = old_state
+            replayed = json.loads((data / "faces_raw.json").read_text(encoding="utf-8"))[0]["faces"]
+            self.assertEqual([f["bbox"] for f in replayed], [f["bbox"] for f in old_faces])
+            self.assertTrue(replayed[0]["embedding_missing"])
 
     def test_ambiguous_or_shifted_boxes_are_reported_unresolved(self):
         deployed = [{"id": "p1", "faces": [
