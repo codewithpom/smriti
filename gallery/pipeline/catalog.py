@@ -32,26 +32,42 @@ def orientation(w, h):
     return "landscape" if w > h else "portrait"
 
 
+def entry_for(path, rel_file, scene, extra=None):
+    path = Path(path)
+    with Image.open(path) as im:
+        has_gps = GPS_IFD_TAG in im.getexif()
+        exif = im.getexif()
+        date = parse_date(path.name)
+        if not date:
+            raw_date = exif.get(36867)
+            try:
+                date = datetime.strptime(str(raw_date), "%Y:%m:%d %H:%M:%S").date().isoformat()
+            except (TypeError, ValueError):
+                pass
+        im = ImageOps.exif_transpose(im)
+        w, h = im.size
+    name = path.name
+    entry = {"id": "p" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:8], "file": str(rel_file).replace("\\", "/"),
+             "name": name, "scene": scene, "date": date, "width": w, "height": h,
+             "orientation": orientation(w, h), "has_gps": has_gps}
+    if extra:
+        entry.update(extra)
+    return entry
+
+
+def add_entries(catalog, new):
+    ids = {entry["id"] for entry in catalog}
+    for entry in new:
+        if entry["id"] in ids:
+            raise RuntimeError("id collision")
+        ids.add(entry["id"])
+    return sorted([*catalog, *new], key=lambda e: (e.get("date") or "9999", e["name"], e["id"]))
+
+
 def main():
     entries = []
     for path in SRC.glob("*/*.jpg"):
-        with Image.open(path) as im:
-            has_gps = GPS_IFD_TAG in im.getexif()
-            im = ImageOps.exif_transpose(im)
-            w, h = im.size
-        name = path.name
-        date = parse_date(name)
-        entries.append({
-            "id": "p" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:8],
-            "file": f"{path.parent.name}/{name}",
-            "name": name,
-            "scene": path.parent.name,
-            "date": date,
-            "width": w,
-            "height": h,
-            "orientation": orientation(w, h),
-            "has_gps": has_gps,
-        })
+        entries.append(entry_for(path, f"{path.parent.name}/{path.name}", path.parent.name))
 
     ids = [e["id"] for e in entries]
     dupes = {i for i in ids if ids.count(i) > 1}

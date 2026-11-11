@@ -36,3 +36,10 @@ Open plane: a 232px labelled sidebar on the ground (Gallery, People, Friends, Pl
 - Face boxes are drawn from normalised `bbox`; names appear only for `confirmed`/`high` faces. Candidates show a dashed outline and a "?" prompt only in Review.
 - Accessibility: visible focus ring, 44px targets, `aria-current` on nav, `prefers-reduced-motion` honoured, text contrast AA in both themes, alt text from the tag pass.
 - Privacy: no originals served, EXIF stripped, private access by default.
+
+## Update: landing, Home feed, motion
+- **Theme in force:** `css/gp-theme.css` (Google Photos style, blue accent) overrides `tokens.css`. The maroon values above are the original palette and are only used by components the theme does not restyle.
+- **Signed out:** `js/landing.js` + `css/landing.css`. Drawn SVG only, so no photo of a student is ever public. It says plainly that photos need sign-in. The nav is hidden until sign-in (`body.is-landing`).
+- **Home (`#/`)** is `views/discover.js`: shelves seeded per visit (Fresh picks, On this day, Spotlight person, a scene, a random day, Most recent) and a Shuffle button. `#/all` and any filtered `#/?...` open the dated grid.
+- **Motion:** `css/motion.css` (view and tile fade-in, button press, loading shimmer), shelf and card entrances in `discover.css`, hero animation in `landing.css`, lightbox double-tap zoom. Everything is switched off under `prefers-reduced-motion`.
+- **Header height:** `--header-h` is 72px (64px under 640px) so sticky month titles sit below the bar.

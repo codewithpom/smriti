@@ -1,0 +1,18 @@
+/* Home feed: horizontal shelves of photos. Motion is off under prefers-reduced-motion. */
+.dv-top { align-items: flex-end; }
+.dv-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.dv-ask { display: grid; gap: 2px; margin: 0 0 20px; padding: 14px 18px; border-radius: 18px; background: var(--accent-soft); color: var(--accent-ink); text-decoration: none; transition: transform var(--dur) var(--ease); }
+.dv-ask:hover { transform: translateY(-2px); }
+.dv-shelf { margin: 0 0 28px; animation: dv-rise .55s var(--ease) both; animation-delay: calc(var(--n, 0) * 80ms); }
+.dv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.dv-head h2 { margin: 0; font-size: 20px; }
+.dv-head p { margin: 2px 0 0; }
+.dv-more { min-height: var(--hit); display: inline-flex; align-items: center; padding: 0 8px; }
+.dv-scroll { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 12px; margin: 0 -2px; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.dv-card { flex: none; scroll-snap-align: start; height: 200px; min-width: 120px; border-radius: 14px; overflow: hidden; background: var(--raised); transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); animation: dv-pop .5s var(--ease) both; animation-delay: calc(var(--i, 0) * 35ms + 150ms); }
+.dv-card img { display: block; height: 100%; width: auto; object-fit: cover; }
+.dv-card:hover, .dv-card:focus-visible { transform: translateY(-4px) scale(1.02); box-shadow: 0 10px 24px rgb(0 0 0 / .22); }
+@media (max-width: 639px) { .dv-card { height: 150px; } .dv-head h2 { font-size: 18px; } }
+@keyframes dv-rise { from { opacity: 0; transform: translateY(16px); } }
+@keyframes dv-pop { from { opacity: 0; transform: scale(.94); } }
+@media (prefers-reduced-motion: reduce) { .dv-shelf, .dv-card, .dv-ask { animation: none; transition: none; } .dv-card:hover { transform: none; } }

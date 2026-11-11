@@ -7,6 +7,7 @@ Names come only from D:\\hello (portraits + name/reg/section). Nothing else from
 """
 import argparse
 import gc
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageOps
+
+import auto_people
+from face_quality import quality, quality_without_crop
 
 GALLERY = Path(__file__).resolve().parent.parent
 DATA = GALLERY / "data"
@@ -29,6 +33,20 @@ T_HIGH = 0.42            # cosine similarity for a confident match (portrait vs 
 T_MARGIN = 0.06          # best must beat the second-best person by this
 T_CAND = 0.28            # below this a face is unknown; between is a question candidate
 CLUSTER_DIST = 0.55      # cosine distance for grouping unknown faces
+MIN_CLUSTER = 2          # smaller groups stay loose faces (Immich uses 3; the batch is small so 2 surfaces more people)
+Q_CORE = 0.35
+LOWQ_EXTRA = 0.08
+ATTACH_DIST = 0.45
+CLUSTER_METHOD = os.environ.get("FACE_CLUSTER", "hdbscan")
+ADA_MODEL = Path(__file__).resolve().parent / ".models" / "adaface_ir101.onnx"
+MODEL_TAG = "r50f+ada" if os.environ.get("FACE_MODEL") == "r50f+ada" and ADA_MODEL.exists() else "r50f"
+
+
+def atomic_write(path, text):
+    """Write then rename, so an interrupted run never leaves truncated JSON that later runs trust."""
+    tmp = Path(str(path) + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def staff_aliases(people_raw):
@@ -116,103 +134,193 @@ def get_app():
     return app
 
 
-def extract():
-    app = get_app()
-    people = load_people()
+def unit(v):
+    v = np.asarray(v, dtype=np.float32)
+    return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-12)
 
-    # reference portraits: largest face per portrait
-    ref_ids, ref_emb, ref_missing = [], [], []
-    for pid, p in people.items():
-        src = p["portrait_src"]
+
+def get_ada_session():
+    if MODEL_TAG != "r50f+ada":
+        return None
+    import onnxruntime as ort
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 2
+    return ort.InferenceSession(str(ADA_MODEL), sess_options=opts, providers=["CPUExecutionProvider"])
+
+
+def embed_aligned(app, aligned, ada=None):
+    """Unit-normalise each flip, then their mean; optionally fuse two unit models."""
+    crops = [aligned, np.ascontiguousarray(aligned[:, ::-1])]
+    emb = unit(unit(app.models["recognition"].get_feat(crops)).mean(axis=0))
+    if ada is not None:
+        rgb = np.stack([c[:, :, ::-1] for c in crops]).astype(np.float32)
+        x = ((rgb / 255 - 0.5) / 0.5).transpose(0, 3, 1, 2)
+        features = ada.run(None, {ada.get_inputs()[0].name: np.ascontiguousarray(x)})[0]
+        emb = np.concatenate([emb, unit(unit(features).mean(axis=0))]) / np.sqrt(2)
+    return emb
+
+
+def aligned_face(img, face):
+    from insightface.utils.face_align import norm_crop
+    return norm_crop(img, face.kps, image_size=112)
+
+
+def _model_loader():
+    app = None
+    def load():
+        nonlocal app
+        if app is None:
+            app = get_app()
+        return app
+    return load
+
+
+def _portrait_views(img, retry=False):
+    """Images to try detection on. Tight head-and-shoulders crops defeat SCRFD (no context around the
+    face), so a copy with a 50% black border follows the original; fixrefs also tries rescaled copies."""
+    import cv2
+    h, w = img.shape[:2]
+    yield img
+    yield cv2.copyMakeBorder(img, h // 2, h // 2, w // 2, w // 2, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    if retry:
+        for scale in (1.6, 0.6):
+            yield cv2.resize(img, None, fx=scale, fy=scale)
+
+
+def _references(people, load_app, ada, retry=False):
+    """Reuse unchanged portraits; fingerprints also invalidate a different model."""
+    ids_path, src_path = DATA / "ref_ids.json", DATA / "ref_src.json"
+    old_src = json.loads(src_path.read_text(encoding="utf-8")) if src_path.exists() else {}
+    old = {}
+    if ids_path.exists() and (DATA / "ref_emb.npy").exists():
+        old = dict(zip(json.loads(ids_path.read_text(encoding="utf-8")), np.load(DATA / "ref_emb.npy", allow_pickle=False)))
+    ids, embeddings, sources = [], [], {}
+    missing = changed = 0
+    dim = 1024 if MODEL_TAG == "r50f+ada" else 512
+    for pid, person in people.items():
+        src = person["portrait_src"]
         if not src or not Path(src).exists():
-            ref_missing.append(pid); continue
-        faces = app.get(load_rgb(src, 1280))
-        if not faces:
-            ref_missing.append(pid); continue
-        f = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-        ref_ids.append(pid); ref_emb.append(f.normed_embedding)
-    np.save(DATA / "ref_emb.npy", np.array(ref_emb, dtype=np.float32))
-    (DATA / "ref_ids.json").write_text(json.dumps(ref_ids))
+            # An incremental runner may not have old portraits, either.
+            if pid in old and pid in old_src and len(old[pid]) == dim:
+                ids.append(pid); embeddings.append(old[pid]); sources[pid] = old_src[pid]
+            else:
+                missing += 1
+            continue
+        fingerprint = hashlib.sha1(Path(src).read_bytes() + MODEL_TAG.encode()).hexdigest()
+        if pid in old and old_src.get(pid) == fingerprint and len(old[pid]) == dim:
+            embedding = old[pid]
+        else:
+            app = load_app()
+            if retry:
+                app.det_model.det_thresh = 0.3
+            embedding = None
+            for img in _portrait_views(load_rgb(src, 1280), retry):
+                found = app.get(img)
+                if found:
+                    face = max(found, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                    embedding = embed_aligned(app, aligned_face(img, face), ada)
+                    changed += 1
+                    break
+            if embedding is None and pid in old and len(old[pid]) == dim:
+                embedding = old[pid]   # detection failed this time; keep the embedding an earlier run (or fixrefs) found
+            if embedding is None:
+                missing += 1
+                continue
+        ids.append(pid); embeddings.append(embedding); sources[pid] = fingerprint
+    np.save(DATA / "ref_emb.npy", np.asarray(embeddings, dtype=np.float32).reshape(-1, dim))
+    atomic_write(ids_path, json.dumps(ids))
+    atomic_write(src_path, json.dumps(sources))
+    if retry:
+        atomic_write(DATA / "ref_failed.json", json.dumps(sorted(set(people) - set(ids))))
+    return len(ids), missing, changed
 
-    # portraits as small avatars
+
+def _people_outputs(people):
     out = GALLERY / "img" / "people"; out.mkdir(parents=True, exist_ok=True)
-    for pid, p in people.items():
-        src = p["portrait_src"]
-        if src and Path(src).exists():
+    for pid, person in people.items():
+        src = person["portrait_src"]
+        if src and Path(src).exists() and not (out / f"{pid}.webp").exists():
             with Image.open(src) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB"); im.thumbnail((240, 240))
                 im.save(out / f"{pid}.webp", quality=80)
+    atomic_write(DATA / "people_meta.json", json.dumps(
+        {pid: {k: v for k, v in p.items() if k != "portrait_src"} for pid, p in people.items()}, ensure_ascii=False))
 
+
+def extract(reembed=False):
+    load_app = _model_loader()
+    ada = get_ada_session()
+    people = load_people()
+    ref_count, ref_missing, _ = _references(people, load_app, ada)
+    _people_outputs(people)
     catalog = json.loads((DATA / "catalog.json").read_text(encoding="utf-8"))
-    cache = DATA / "fx"; cache.mkdir(exist_ok=True)   # one file per photo: the run resumes after a crash
+    cache = DATA / "fx" / MODEL_TAG; cache.mkdir(parents=True, exist_ok=True)
     rows, embs = [], []
+    missing = oom = 0
+    dim = 1024 if MODEL_TAG == "r50f+ada" else 512
     for n, e in enumerate(catalog, 1):
         cf = cache / f"{e['id']}.json"
+        legacy = DATA / "fx" / f"{e['id']}.json"
+        # reembed ignores the legacy cache, except when the source photo is not on this machine: keep its faces then
+        if not cf.exists() and legacy.exists() and (not reembed or not (SRC / e["file"]).exists()):
+            cf = legacy
         if not cf.exists():
+            if not (SRC / e["file"]).exists():
+                missing += 1
+                continue
             for cap in (MAX_SIDE, 1600, 1024):          # low-RAM machine: retry smaller on OOM
                 try:
                     img = load_rgb(SRC / e["file"], cap)
                     H, W = img.shape[:2]
+                    app = load_app()
                     faces = app.get(img)
+                    cached = []
+                    for f in faces:
+                        aligned = aligned_face(img, f)
+                        px = min(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1])
+                        cached.append({"b": np.asarray(f.bbox).tolist(), "k": np.asarray(f.kps).tolist(),
+                                       "w": W, "h": H, "d": float(f.det_score),
+                                       "q": quality(f.det_score, px, f.kps, aligned),
+                                       "v": embed_aligned(app, aligned, ada).tolist()})
                     break
                 except (MemoryError, cv2_error()):
                     gc.collect(); faces = None
             if faces is None:
-                print("skip (OOM)", e["id"], flush=True); continue
-            cf.write_text(json.dumps([{"b": [float(v) for v in f.bbox], "w": W, "h": H, "d": float(f.det_score),
-                                       "v": f.normed_embedding.tolist()} for f in faces]))
+                oom += 1
+                continue
+            atomic_write(cf, json.dumps(cached))
         found = []
         for f in json.loads(cf.read_text(encoding="utf-8")):
             x1, y1, x2, y2 = f["b"]; W, H = f["w"], f["h"]
             if f["d"] < MIN_DET:
                 continue
+            px = int(min(x2 - x1, y2 - y1))
             found.append({"bbox": [round(x1 / W, 4), round(y1 / H, 4), round((x2 - x1) / W, 4), round((y2 - y1) / H, 4)],
-                          "det": round(f["d"], 3), "px": int(min(x2 - x1, y2 - y1)), "e": len(embs)})
-            embs.append(np.array(f["v"], dtype=np.float32))
+                          "det": round(f["d"], 3), "px": px, "q": f.get("q", quality_without_crop(f["d"], px)), "e": len(embs)})
+            vector = np.asarray(f["v"], dtype=np.float32)
+            if len(vector) == 512 and dim == 1024:
+                # Legacy rows have no AdaFace view: preserve their unit R50 vector,
+                # with a zero AdaFace half (cross-model scores are conservative).
+                vector = np.concatenate([unit(vector), np.zeros(512, dtype=np.float32)])
+            if vector.shape != (dim,) or not np.isfinite(vector).all():
+                raise ValueError("invalid cached embedding dimensions or values")
+            embs.append(vector)
         rows.append({"photo": e["id"], "faces": found})
         if n % 25 == 0:
             print(f"{n}/{len(catalog)} photos, {len(embs)} faces", flush=True)
-    np.save(DATA / "face_emb.npy", np.array(embs, dtype=np.float32))
+    np.save(DATA / "face_emb.npy", np.asarray(embs, dtype=np.float32).reshape(-1, dim))
     (DATA / "faces_raw.json").write_text(json.dumps(rows))
-    (DATA / "people_meta.json").write_text(json.dumps(
-        {pid: {k: v for k, v in p.items() if k != "portrait_src"} for pid, p in people.items()}, ensure_ascii=False))
-    print(f"done: {len(embs)} faces in {len(rows)} photos; references {len(ref_ids)}/{len(people)}; missing {ref_missing}")
+    print(f"done: {len(embs)} faces in {len(rows)} photos; references {ref_count}/{len(people)}; "
+          f"missing portraits {ref_missing}; skipped missing {missing}, OOM {oom}")
 
 
 def fixrefs():
     """Retry portraits where extract found no face: upscale small ones and accept weaker detections."""
-    app = get_app(); app.det_model.det_thresh = 0.3
     people = load_people()
-    ids = json.loads((DATA / "ref_ids.json").read_text(encoding="utf-8")); emb = list(np.load(DATA / "ref_emb.npy"))
-    added = []
-    failed_path = DATA / "ref_failed.json"   # portraits that never yield a face: skipped next time (delete file to retry)
-    failed = set(json.loads(failed_path.read_text(encoding="utf-8"))) if failed_path.exists() else set()
-    for pid, p in people.items():
-        src = p["portrait_src"]
-        if pid in ids or pid in failed or not src or not Path(src).exists():
-            continue
-        for scale in (1.0, 1.6, 0.6):
-            img = load_rgb(src, 1280)
-            if scale != 1.0:
-                import cv2
-                img = cv2.resize(img, None, fx=scale, fy=scale)
-            faces = app.get(img)
-            if faces:
-                f = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-                ids.append(pid); emb.append(f.normed_embedding); added.append(pid); break
-    failed |= {pid for pid, p in people.items() if pid not in ids and p["portrait_src"] and Path(p["portrait_src"]).exists()}
-    failed_path.write_text(json.dumps(sorted(failed)))
-    out = GALLERY / "img" / "people"; out.mkdir(parents=True, exist_ok=True)
-    for pid, p in people.items():           # avatars + names for anyone added since `extract`
-        src = p["portrait_src"]
-        if src and Path(src).exists() and not (out / f"{pid}.webp").exists():
-            with Image.open(src) as im:
-                im = ImageOps.exif_transpose(im).convert("RGB"); im.thumbnail((240, 240)); im.save(out / f"{pid}.webp", quality=80)
-    (DATA / "people_meta.json").write_text(json.dumps(
-        {pid: {k: v for k, v in p.items() if k != "portrait_src"} for pid, p in people.items()}, ensure_ascii=False))
+    count, missing, changed = _references(people, _model_loader(), get_ada_session(), retry=True)
+    _people_outputs(people)
     (DATA / "aliases.json").write_text(json.dumps(load_aliases(), sort_keys=True), encoding="utf-8")
-    np.save(DATA / "ref_emb.npy", np.array(emb, dtype=np.float32)); (DATA / "ref_ids.json").write_text(json.dumps(ids))
-    print(f"added {len(added)} references, now {len(ids)}/{len(people)}; still missing {sum(1 for p in people if p not in ids)}")
+    print(f"updated {changed} references, now {count}/{len(people)}; still missing {missing}")
 
 
 def rank_persons(bank_e, bank_p, e, agg="max"):
@@ -245,9 +353,89 @@ def decide(ranked, px, t_high=T_HIGH, t_margin=T_MARGIN, t_cand=T_CAND, min_px=M
     return None, 0.0, "unknown"
 
 
-def match():
-    from scipy.cluster.hierarchy import fcluster, linkage
+def face_q(face):
+    return face.get("q", quality_without_crop(face.get("det", 0.9), face["px"]))
 
+
+def prototype_bank(raw, emb, ref_emb, ref_ids, face_fix):
+    """Portraits, all confirmations, and one quality-weighted core prototype per person."""
+    bank_e, bank_p = list(ref_emb), list(ref_ids)
+    core = {}
+    for row in raw:
+        for i, face in enumerate(row["faces"]):
+            pid = face_fix.get(f"{row['photo']}:{i}")
+            if pid and pid != "none":
+                vector, q = emb[face["e"]], face_q(face)
+                bank_e.append(vector); bank_p.append(pid)
+                if q >= Q_CORE:
+                    core.setdefault(pid, []).append((vector, q))
+    for pid, samples in core.items():
+        if len(samples) >= 2:
+            vectors, weights = zip(*samples)
+            prototype = np.average(vectors, axis=0, weights=weights)
+            if np.linalg.norm(prototype) > 1e-12:
+                bank_e.append(unit(prototype)); bank_p.append(pid)
+    return np.asarray(bank_e), np.asarray(bank_p)
+
+
+def cluster_pool(emb_matrix, q, photo_ids, method):
+    """Cluster quality cores, attach nearby loose faces, then enforce cannot-link."""
+    if method not in ("hdbscan", "average"):
+        raise ValueError("unknown clustering method")
+    n = len(emb_matrix)
+    if len(q) != n or len(photo_ids) != n:
+        raise ValueError("clustering inputs must have equal lengths")
+    labels = np.full(n, -1, dtype=int)
+    if n < 2:
+        return labels.tolist()
+    e = np.asarray(emb_matrix, dtype=np.float32)
+    if e.ndim != 2 or not np.isfinite(e).all() or not np.isfinite(q).all():
+        raise ValueError("clustering requires finite embeddings and quality")
+    norms = np.linalg.norm(e, axis=1)
+    valid = norms > 1e-12
+    e = unit(e)
+    core = np.flatnonzero((np.asarray(q) >= Q_CORE) & valid)
+    if len(core) < 2:
+        return labels.tolist()
+    if method == "hdbscan":
+        from sklearn.cluster import HDBSCAN
+        labels[core] = HDBSCAN(min_cluster_size=2, metric="euclidean", copy=True).fit_predict(e[core])
+        if np.all(labels[core] == -1):
+            # HDBSCAN normally rejects a lone identity (including a pair).
+            # Permit it only within the attachment radius, in Euclidean units.
+            labels[core] = HDBSCAN(min_cluster_size=2, metric="euclidean", copy=True,
+                                  allow_single_cluster=True,
+                                  cluster_selection_epsilon=float(np.sqrt(2 * ATTACH_DIST))).fit_predict(e[core])
+    else:
+        from scipy.cluster.hierarchy import fcluster, linkage
+        labels[core] = fcluster(linkage(e[core], "average", metric="cosine"), CLUSTER_DIST, "distance") - 1
+    groups = [lab for lab in sorted(set(labels)) if lab >= 0 and np.count_nonzero(labels == lab) >= 2]
+    labels[~np.isin(labels, groups)] = -1
+    if not groups:
+        return labels.tolist()
+    centroids = np.asarray([unit(e[labels == lab].mean(axis=0)) for lab in groups])
+    # Freeze core centroids so attachment cannot drift or depend on input order.
+    loose = np.flatnonzero((labels == -1) & valid)
+    for i in loose:
+        distances = 1 - centroids @ e[i]
+        nearest = int(np.argmin(distances))
+        if distances[nearest] <= ATTACH_DIST:
+            labels[i] = groups[nearest]
+    for lab, centroid in zip(groups, centroids):
+        by_photo = {}
+        for i in np.flatnonzero(labels == lab):
+            by_photo.setdefault(photo_ids[i], []).append(i)
+        for members in by_photo.values():
+            keep = max(members, key=lambda i: float(e[i] @ centroid))
+            for i in members:
+                if i != keep:
+                    labels[i] = -1
+        if np.count_nonzero(labels == lab) < MIN_CLUSTER:
+            labels[labels == lab] = -1
+    return labels.tolist()
+
+
+def match():
     raw = json.loads((DATA / "faces_raw.json").read_text(encoding="utf-8"))
     emb = np.load(DATA / "face_emb.npy")
     ref_emb = np.load(DATA / "ref_emb.npy")
@@ -262,16 +450,10 @@ def match():
         ref_ids = [aliases.get(pid, pid) for pid in ref_ids]
         face_fix = {key: aliases.get(pid, pid) if pid != "none" else pid for key, pid in face_fix.items()}
 
-    # reference bank = portraits + faces the user confirmed (the learning loop)
-    bank_e, bank_p = list(ref_emb), list(ref_ids)
-    for row in raw:
-        for i, f in enumerate(row["faces"]):
-            pid = face_fix.get(f"{row['photo']}:{i}")
-            if pid and pid != "none":
-                bank_e.append(emb[f["e"]]); bank_p.append(pid)
-    bank_e = np.array(bank_e); bank_p = np.array(bank_p)
+    bank_e, bank_p = prototype_bank(raw, emb, ref_emb, ref_ids, face_fix)
 
-    out, unknown_idx = {}, []
+    out = {}
+    by_face = {(row["photo"], i): f for row in raw for i, f in enumerate(row["faces"])}
     for row in raw:
         res = []
         for i, f in enumerate(row["faces"]):
@@ -285,7 +467,7 @@ def match():
             elif fixed:
                 r.update(person=fixed, status="confirmed", score=1.0)
             else:
-                person, score, status = decide(ranked, f["px"])
+                person, score, status = decide(ranked, f["px"], t_high=T_HIGH + (LOWQ_EXTRA if face_q(f) < Q_CORE else 0))
                 r.update(person=person, score=score, status=status)
             res.append(r)
         # a person appears once per photo: keep the strongest claim, demote the rest to candidates
@@ -303,12 +485,21 @@ def match():
     # cluster every face that has no name yet, so one answer can name a whole cluster
     pool = [(pid, r) for pid, rs in out.items() for r in rs if r["person"] is None and r["status"] in ("unknown", "candidate")]
     if len(pool) > 1:
-        e = np.array([emb[raw_idx(raw, pid, r["i"])] for pid, r in pool])
-        labels = fcluster(linkage(e, "average", metric="cosine"), CLUSTER_DIST, "distance")
-        sizes = np.bincount(labels)
+        entries = [by_face[pid, r["i"]] for pid, r in pool]
+        e = np.array([emb[f["e"]] for f in entries])
+        labels = cluster_pool(e, [face_q(f) for f in entries], [pid for pid, _ in pool], CLUSTER_METHOD)
+        groups = {}
         for (pid, r), lab in zip(pool, labels):
-            r["cluster"] = int(lab) if sizes[lab] >= 3 else None
-    (DATA / "faces.json").write_text(json.dumps(out))
+            if lab >= 0:
+                groups.setdefault(int(lab), []).append((r, auto_people.face_key(pid, r["bbox"])))
+        groups = {lab: g for lab, g in groups.items() if len(g) >= MIN_CLUSTER}
+        registry, floor = auto_people.load(DATA / "auto_people.json")
+        mapping, registry = auto_people.assign_ids({lab: [k for _, k in g] for lab, g in groups.items()}, registry, floor)
+        for lab, g in groups.items():
+            for r, _ in g:
+                r["cluster"] = int(mapping[lab][2:])   # stable across runs ("U_3" -> 3); stays an int so question ids and vote rules (c<digits>) keep working
+        auto_people.save(DATA / "auto_people.json", registry)
+    atomic_write(DATA / "faces.json", json.dumps(out))
     stats = {s: sum(1 for rs in out.values() for r in rs if r["status"] == s) for s in ("confirmed", "high", "candidate", "unknown", "tiny", "rejected")}
     print("faces:", sum(stats.values()), stats, "clusters:", len({r["cluster"] for rs in out.values() for r in rs if r["cluster"]}))
 
@@ -324,5 +515,9 @@ def raw_idx(raw, photo, i):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("cmd", choices=["extract", "fixrefs", "match"])
+    ap.add_argument("--reembed", action="store_true", help="ignore legacy photo caches during extract")
     a = ap.parse_args()
-    {"extract": extract, "fixrefs": fixrefs, "match": match}[a.cmd]()
+    if a.cmd == "extract":
+        extract(reembed=a.reembed)
+    else:
+        {"fixrefs": fixrefs, "match": match}[a.cmd]()

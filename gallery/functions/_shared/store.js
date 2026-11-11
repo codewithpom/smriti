@@ -4,6 +4,31 @@
 //   list({prefix, cursor}) -> {objects:[{key,size}], truncated, cursor},  delete(key)
 // KV limits to know: 25 MiB per value, ~1,000 writes/day on the free plan, eventually consistent (~60 s).
 
+// JSON helpers. R2 returns a stream body and KV an ArrayBuffer: Response reads both.
+export async function getJson(store, key, fallback = null) {
+  try {
+    const object = await store.get(key);
+    return object ? await new Response(object.body).json() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function putJson(store, key, value) {
+  return store.put(key, new TextEncoder().encode(JSON.stringify(value)), { httpMetadata: { contentType: 'application/json' } });
+}
+
+export async function listAll(store, prefix) {
+  const objects = [];
+  let cursor;
+  do {
+    const page = await store.list({ prefix, cursor });
+    objects.push(...(page.objects ?? []));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return objects;
+}
+
 export function storage(env) {
   const ns = env.PHOTOS;
   if (!ns) throw new Error('storage_not_bound');

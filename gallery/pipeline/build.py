@@ -7,6 +7,7 @@ Writes data/{photos,people,graph,questions,clusters}.json
 import json
 import math
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import networkx as nx
@@ -41,11 +42,13 @@ def main():
 
     # ---- photos
     photos = []
-    for e in catalog:
+    published = [e for e in catalog if not e.get("pending") and not e.get("dup_of")]
+    pending = [e for e in catalog if e.get("pending")]
+    for e in published:
         t = tags.get(e["id"], {})
         fs = faces.get(e["id"], [])
         named = sorted({f["person"] for f in fs if f["person"] and f["status"] in GOOD})
-        photos.append({
+        photo = {
             "id": e["id"], "scene": scene_fix.get(e["id"], e["scene"]), "folder_scene": e["scene"],
             "scene_confirmed": e["id"] in scene_fix, "date": e["date"], "w": e["width"], "h": e["height"],
             "color": e.get("color", "#888888"), "thumb": f"img/thumb/{e['id']}.webp", "web": f"img/web/{e['id']}.webp",
@@ -54,7 +57,10 @@ def main():
             "crowd": t.get("people"), "text": lst(t.get("text")), "alt": t.get("alt", ""),
             "faces": [{k: f[k] for k in ("i", "bbox", "person", "status", "score")} for f in fs],
             "people": named, "n_faces": len(fs),
-        })
+        }
+        if e.get("ph"):
+            photo["ph"] = e["ph"]
+        photos.append(photo)
     by_id = {p["id"]: p for p in photos}
 
     # ---- graph: a pair's weight is the sum over shared photos of 1/(faces-1), so a 3-person candid beats a 60-person assembly
@@ -104,6 +110,8 @@ def main():
     # ---- unknown clusters (one answer names the whole cluster)
     clusters = defaultdict(list)
     for pid, fs in faces.items():
+        if pid not in by_id:
+            continue
         for f in fs:
             if f.get("cluster") and not f["person"]:
                 clusters[f["cluster"]].append((pid, f))
@@ -123,6 +131,8 @@ def main():
 
     # ---- face questions: confident-ish candidates not covered by a cluster question
     for pid, fs in faces.items():
+        if pid not in by_id:
+            continue
         for f in fs:
             if f["status"] == "candidate" and not f.get("cluster") and f["cands"]:
                 questions.append({"id": f"f{pid}:{f['i']}", "type": "face", "priority": round(0.3 + f["cands"][0][1] / 2, 3),
@@ -147,6 +157,21 @@ def main():
     questions = [q for q in questions if q["id"] not in set(corr.get("skipped", []))]
     questions.sort(key=lambda q: -q["priority"])
 
+    pending_out = []
+    for e in pending:
+        fs = faces.get(e["id"], [])
+        at = e.get("date")
+        upload_key = e.get("upload_key", "")
+        try:
+            millis = int(upload_key.rsplit("/", 1)[1].split("-", 1)[0])
+            at = datetime.fromtimestamp(millis / 1000, timezone.utc).isoformat()
+        except (IndexError, ValueError, OSError):
+            pass
+        pending_out.append({"photo": e["id"], "thumb": f"img/thumb/{e['id']}.webp", "web": f"img/web/{e['id']}.webp",
+                            "uploader": e.get("uploader"), "at": at,
+                            "faces": [{"person": f.get("person"), "status": f.get("status")} for f in fs],
+                            **({"dupOf": e["dup_of"]} if e.get("dup_of") else {})})
+    (DATA / "pending.json").write_text(json.dumps({"items": pending_out}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     out = {"photos.json": photos, "people.json": people, "graph.json": {"nodes": nodes, "edges": edges},
            "questions.json": questions, "clusters.json": cl_out}
     for name, obj in out.items():

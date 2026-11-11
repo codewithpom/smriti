@@ -4,15 +4,17 @@ import { el, ls } from './util.js';
 import { onUser, signIn, signOut, currentProfile, isAdmin } from './auth.js';
 import * as lightbox from './views/lightbox.js';
 import * as gallery from './views/gallery.js';
+import * as discover from './views/discover.js';
 import * as people from './views/people.js';
 import * as person from './views/person.js';
 import * as friends from './views/friends.js';
 import * as places from './views/places.js';
 import * as review from './views/review.js';
 import { DEMO } from './config.js';
+import { renderLanding } from './landing.js';
 
 const SITE = 'RKMV Gallery';
-const views = { gallery, people, person, friends, places, review };
+const views = { discover, gallery, people, person, friends, places, review };
 // Loaded on first visit, so the public pages do not download the admin and upload code.
 const lazyViews = { admin: () => import('./views/admin.js'), upload: () => import('./views/upload.js') };
 const navFor = { person: 'people' };
@@ -120,11 +122,12 @@ function showGate(acc) {
   const back = () => { access = null; route(); };
   const out = el('button', { type: 'button', class: 'btn', onclick: () => signOut() }, 'Sign out');
   if (acc.state === 'signed-out') {
-    const msg = el('p', { class: 'rv-msg small', role: 'status' });
-    renderScreen('Sign in to see the gallery',
-      el('p', { class: 'muted', text: 'Sign in with the Google account that matches your registration number. Only rkmv<registration number>@gmail.com accounts can sign in.' }),
-      el('div', { class: 'rv-actions' }, el('button', { type: 'button', class: 'btn btn-primary', onclick: () => signIn().catch(() => { msg.textContent = 'Sign-in did not finish. Try again.'; }) }, 'Sign in with Google')),
-      msg);
+    current?.inst?.unmount?.();
+    current = null;
+    renderLanding(view, { onSignIn: signIn });
+    document.title = `Sign in - ${SITE}`;
+    $('#topbar-title').textContent = SITE;
+    setNav('');
   } else if (acc.state === 'pending') {
     renderScreen('Waiting for approval',
       el('p', { class: 'muted', text: 'Your account is registered. An admin still needs to approve it before you can see the gallery. Check again later.' }),
@@ -147,15 +150,18 @@ function showGate(acc) {
 async function route() {
   const acc = await checkAccess();
   setRoles(acc);
+  document.body.classList.toggle('is-landing', acc.state === 'signed-out'); // landing hides the nav: nothing to open yet
   if (acc.state !== 'ok') { showGate(acc); return; }
   try { await load(); } catch (e) { showError(e); return; }
   const { parts, query } = parse();
   Object.assign(ctx, { parts, query });
-  const name = parts[0] || 'gallery';
+  // Plain #/ is the Home feed; #/all and any filtered #/?... open the dated grid.
+  let name = parts[0] || ([...query.keys()].some((k) => k !== 'seed') ? 'gallery' : 'discover');
+  if (name === 'all') name = 'gallery';
   closeMenu();
 
   if (name === 'photo') {
-    if (!current) { mountView('gallery'); current.hash = '#/'; }
+    if (!current) { mountView('discover'); current.hash = '#/'; }
     else if (!lightbox.isOpen()) fromBase = true;
     lightbox.open(parts[1], ctx);
     return;
@@ -163,7 +169,7 @@ async function route() {
   const wasOpen = lightbox.isOpen();
   if (wasOpen) lightbox.close();
   fromBase = false;
-  const key = name in views || name in lazyViews ? name : 'gallery';
+  const key = name in views || name in lazyViews ? name : 'discover';
   if (key === 'admin' && !acc.admin) { renderScreen('Admins only', el('p', { class: 'muted', text: 'Only admins can open this page.' })); return; }
   if (current && current.name === key && current.hash === location.hash) {
     // Back from the lightbox to the same base view: nothing to remount.

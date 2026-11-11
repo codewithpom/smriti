@@ -15,3 +15,9 @@
   .admin-list > li, .admin-row { align-items: flex-start; }
   .admin-list .admin-main, .admin-row .admin-main { flex-basis: 100%; }
 }
+.admin-preview { flex: 0 0 64px; }
+.storage-options { display: grid; gap: 10px; margin: 12px 0; padding: 14px; border: 1px solid var(--rule); border-radius: var(--radius-card); }
+.storage-options legend { padding: 0 6px; font-weight: 600; }
+.storage-options label { display: flex; align-items: flex-start; gap: 10px; min-height: var(--hit); }
+.storage-options input { width: 20px; height: 20px; flex: 0 0 20px; }
+.storage-next ol { display: grid; gap: 12px; padding-left: 24px; }
