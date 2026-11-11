@@ -1,5 +1,6 @@
 """Offline coverage for the incremental scanner."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -231,6 +232,34 @@ class ScanTest(unittest.TestCase):
         self.local.put_json("state/published-assets.json", {"sha256": "bad", "paths": ["../escape.webp"]})
         with self.assertRaises(ValueError):
             ci_scan._copy_missing_images(self.local, cache, dest2)
+
+    def test_versioned_baseline_manifest_blocks_stale_overlay_but_allows_updates(self):
+        baseline = self.root / "versioned-baseline"
+        baseline.mkdir()
+        expected = b"canonical-avatar-01"
+        stale = b"stale-avatar-------"
+        self.assertEqual(len(stale), len(expected))
+        (baseline / "avatar.webp").write_bytes(expected)
+        version = hashlib.sha256(b"versioned baseline fixture").hexdigest()
+        object_key = f"state/published-assets/{version}.tar.gz"
+        self.local.pack_put(object_key, baseline)
+        self.local.put_json("state/published-assets.json", {
+            "sha256": version, "paths": ["avatar.webp"], "object": object_key,
+        })
+        self.local.put_json("state/manifest/img.json", {"avatar.webp": hashlib.sha1(expected).hexdigest()})
+        self.local.put("img/avatar.webp", stale)
+
+        cache, dest = self.root / "versioned-cache", self.root / "versioned-published"
+        ci_scan._copy_missing_images(self.local, cache, dest)
+        self.assertEqual((dest / "avatar.webp").read_bytes(), expected)
+        self.assertEqual((cache / "avatar.webp").read_bytes(), expected)
+
+        updated = b"updated-avatar-bytes"
+        self.local.put("img/avatar.webp", updated)
+        self.local.put_json("state/manifest/img.json", {"avatar.webp": hashlib.sha1(updated).hexdigest()})
+        dest2 = self.root / "versioned-published-updated"
+        ci_scan._copy_missing_images(self.local, cache, dest2)
+        self.assertEqual((dest2 / "avatar.webp").read_bytes(), updated)
 
     def test_backfill_marks_duplicate(self):
         source = self.root / "albums"

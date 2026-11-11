@@ -172,8 +172,15 @@ def _copy_missing_images(remote, cache, dest):
     # immutable baseline packed so restoring it fits the free KV write quota.
     baseline = remote.get_json("state/published-assets.json", None)
     copied_paths = set()
+    baseline_paths = set()
     if baseline:
         version = baseline["sha256"]
+        object_key = baseline.get("object", "state/published-assets.tar.gz")
+        if object_key != "state/published-assets.tar.gz":
+            if (not isinstance(version, str) or len(version) != 64
+                    or any(c not in "0123456789abcdef" for c in version)
+                    or object_key != f"state/published-assets/{version}.tar.gz"):
+                raise ValueError("invalid baseline image object")
         stamp = cache / ".baseline-version"
         paths = []
         for value in baseline["paths"]:
@@ -181,8 +188,9 @@ def _copy_missing_images(remote, cache, dest):
             if path.is_absolute() or ".." in path.parts or "\\" in value or ":" in value:
                 raise ValueError("unsafe baseline image path")
             paths.append(path)
+            baseline_paths.add(path.as_posix())
         if not stamp.exists() or stamp.read_text() != version or any(not (cache / p).is_file() for p in paths):
-            if not remote.unpack_get("state/published-assets.tar.gz", cache):
+            if not remote.unpack_get(object_key, cache):
                 raise RuntimeError("missing baseline image archive")
             stamp.write_text(version)
         for path in paths:
@@ -190,15 +198,32 @@ def _copy_missing_images(remote, cache, dest):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(cache / path, target)
             copied_paths.add(path.as_posix())
+    image_manifest = remote.get_json("state/manifest/img.json", None)
+    if image_manifest is not None and not isinstance(image_manifest, dict):
+        raise ValueError("invalid image manifest")
     local_sizes = {p.relative_to(cache).as_posix(): p.stat().st_size for p in cache.rglob("*") if p.is_file()}
     for key, size in remote.ls("img/"):
         rel = key[4:]
         target = cache / rel
-        if local_sizes.get(rel) != size:
-            target.parent.mkdir(parents=True, exist_ok=True)
+        expected_hash = image_manifest.get(rel) if image_manifest is not None and rel in baseline_paths else None
+        if expected_hash is not None:
+            if (not isinstance(expected_hash, str) or len(expected_hash) != 40
+                    or any(c not in "0123456789abcdef" for c in expected_hash)):
+                raise ValueError("invalid image manifest")
+            cached_hash = hashlib.sha1(target.read_bytes()).hexdigest() if target.is_file() else None
+            if cached_hash == expected_hash:
+                data = None
+            else:
+                data = remote.get(key)
+                if data is None or hashlib.sha1(data).hexdigest() != expected_hash:
+                    raise ValueError("stored image does not match manifest")
+        elif local_sizes.get(rel) != size:
             data = remote.get(key)
-            if data is not None:
-                target.write_bytes(data)
+        else:
+            data = None
+        if data is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
         out = dest / rel
         out.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file():
