@@ -129,6 +129,15 @@ def _assert_public_image_urls(old_photos: list[dict], new_photos: list[dict],
         raise RepairError("public_avatar_urls_changed")
 
 
+def _validate_asset_availability(old_served: dict[str, object],
+                                 desired_served: dict[str, object],
+                                 available: set[str]) -> None:
+    old_assets = set().union(*(_public_assets(old_served[name]) for name in SITE_JSON))
+    desired_assets = set().union(*(_public_assets(desired_served[name]) for name in SITE_JSON))
+    if not (desired_assets - old_assets).issubset(available):
+        raise RepairError("new_static_assets_required")
+
+
 def _assert_recovery_snapshot(archive_photos: list[dict], archive_people: list[dict],
                               served_photos: list[dict], served_people: list[dict]) -> None:
     """Ensure the encrypted current site still includes every bootstrap invariant."""
@@ -406,9 +415,7 @@ def _repair(backup: Path, original_archive: Path, remote=None, *,
         raise RepairError("image_baseline_metadata_missing")
     available = set(baseline["paths"])
     available.update(key[4:] for key, _ in remote.ls("img/"))
-    for name in SITE_JSON:
-        if not _public_assets(desired_served[name]).issubset(available):
-            raise RepairError("new_static_assets_required")
+    _validate_asset_availability(old_served, desired_served, available)
 
     transaction = transaction or _json(backup / "repairs" / TRANSACTION_FILE)
     current_hashes = _verify_live_snapshot(

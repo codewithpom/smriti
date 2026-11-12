@@ -169,6 +169,18 @@ class RepairRecoveryCITest(unittest.TestCase):
         with self.assertRaisesRegex(repair.RepairError, "public_avatar_urls_changed"):
             repair._assert_public_image_urls(photos, photos, people, changed_people)
 
+    def test_asset_availability_only_requires_new_references(self):
+        old = {name: [] for name in repair.SITE_JSON}
+        desired = {name: [] for name in repair.SITE_JSON}
+        old["people"] = [{"id": "S1", "avatar": "img/missing-legacy.webp"}]
+        desired["people"] = [{"id": "S1", "avatar": "img/missing-legacy.webp"}]
+        repair._validate_asset_availability(old, desired, set())
+
+        desired["people"] = [{"id": "S1", "avatar": "img/new-missing.webp"}]
+        with self.assertRaisesRegex(repair.RepairError, "new_static_assets_required"):
+            repair._validate_asset_availability(old, desired, set())
+        repair._validate_asset_availability(old, desired, {"new-missing.webp"})
+
     def test_prepare_copies_backup_and_never_opens_remote(self):
         original = self.root / "original"
         output = self.root / "prepared"
