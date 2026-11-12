@@ -247,9 +247,12 @@ def pages_config(env):
     values = {name: env.get(name, "") for name in ("PAGES_PROJECT", "FIREBASE_PROJECT_ID", "GITHUB_REPOSITORY")}
     values["PHOTOS_BACKEND"] = env.get("PHOTOS_BACKEND") or env.get("STORAGE_BACKEND") or "kv"
     values["SCAN_HOLD"] = env.get("SCAN_HOLD", "false").lower()
+    values["UPLOAD_HOLD"] = env.get("UPLOAD_HOLD", "false").lower()
     values["FIREBASE_STORAGE_BUCKET"] = env.get("FIREBASE_STORAGE_BUCKET", "")
     if values["SCAN_HOLD"] not in ("true", "false"):
         raise SystemExit("missing or invalid setting: SCAN_HOLD")
+    if values["UPLOAD_HOLD"] not in ("true", "false"):
+        raise SystemExit("missing or invalid setting: UPLOAD_HOLD")
     if values["PHOTOS_BACKEND"] not in ("kv", "r2", "firebase"):
         raise SystemExit("missing or invalid setting: PHOTOS_BACKEND")
     store_name = {"kv": "CF_KV_NAMESPACE_ID", "r2": "R2_BUCKET", "firebase": "FIREBASE_STORAGE_BUCKET"}[values["PHOTOS_BACKEND"]]
@@ -269,7 +272,8 @@ def pages_config(env):
              *binding, "", "[vars]", f'FIREBASE_PROJECT_ID = "{values["FIREBASE_PROJECT_ID"]}"',
              f'GITHUB_REPO = "{values["GITHUB_REPOSITORY"]}"',
              f'PHOTOS_BACKEND = "{values["PHOTOS_BACKEND"]}"',
-             f'SCAN_HOLD = "{values["SCAN_HOLD"]}"']
+             f'SCAN_HOLD = "{values["SCAN_HOLD"]}"',
+             f'UPLOAD_HOLD = "{values["UPLOAD_HOLD"]}"']
     if values["FIREBASE_STORAGE_BUCKET"]:
         lines.append(f'FIREBASE_STORAGE_BUCKET = "{values["FIREBASE_STORAGE_BUCKET"]}"')
     return "\n".join(lines) + "\n"

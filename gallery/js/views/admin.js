@@ -233,12 +233,14 @@ export function mount(root, ctx) {
         : ' Firebase Storage: available after a verified copy while scans are held'));
     const usage = data.usage || {};
     const note = el('p', { class: 'muted small', text: `${usage.keys ?? 0} keys \u00b7 ${(Number(usage.bytes || 0) / 1024 / 1024).toFixed(1)} MB` });
-    const warning = data.scanHeld
+    const scanWarning = data.scanHeld
       ? el('p', { class: 'pill', text: data.setting && data.setting !== data.binding
         ? `Scans are paused. Scanner target is ${data.setting}; live uploads are accepted on ${data.binding} and queued.`
         : `Scans are paused for storage migration. Uploads are accepted on ${data.binding || 'the current store'} and queued.` })
       : data.setting && data.setting !== data.binding
         ? el('p', { class: 'pill', text: `Scanner targets ${data.setting}; live uploads still use ${data.binding}.` }) : null;
+    const warnings = [scanWarning, data.uploadHeld
+      ? el('p', { class: 'pill', text: 'New photo uploads are temporarily paused for the final storage sync.' }) : null].filter(Boolean);
     const next = el('div', { class: 'storage-next' });
     const switchButton = button('Switch storage', async () => {
       const target = choices.querySelector('input:checked')?.value;
@@ -260,7 +262,7 @@ export function mount(root, ctx) {
       }
     }, 'btn btn-primary');
     switchButton.disabled = !data.configured;
-    body.append(choices, note, warning, switchButton, next);
+    body.append(choices, note, ...warnings, switchButton, next);
   }
   async function stats() {
     const [list, votes] = await Promise.all([listUsers(), listAllVotes()]);

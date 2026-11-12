@@ -211,6 +211,7 @@ class ScanTest(unittest.TestCase):
         self.assertIn('PHOTOS_BACKEND = "kv"', firebase_migration)
         self.assertIn('FIREBASE_STORAGE_BUCKET = "gallery.appspot.com"', firebase_migration)
         self.assertIn('SCAN_HOLD = "false"', firebase_migration)
+        self.assertIn('UPLOAD_HOLD = "false"', firebase_migration)
         firebase_runtime = ci_scan.pages_config({**env, "STORAGE_BACKEND": "firebase",
                                                   "PHOTOS_BACKEND": "firebase",
                                                   "FIREBASE_STORAGE_BUCKET": "gallery.appspot.com"})
@@ -220,6 +221,8 @@ class ScanTest(unittest.TestCase):
         self.assertNotIn("GOOGLE_SERVICE_ACCOUNT_JSON", firebase_runtime)
         held = ci_scan.pages_config({**env, "SCAN_HOLD": "true"})
         self.assertIn('SCAN_HOLD = "true"', held)
+        upload_held = ci_scan.pages_config({**env, "UPLOAD_HOLD": "true"})
+        self.assertIn('UPLOAD_HOLD = "true"', upload_held)
         with self.assertRaises(SystemExit):
             ci_scan.pages_config({**env, "STORAGE_BACKEND": "kv", "CF_KV_NAMESPACE_ID": 'x"\n[evil]'})
 

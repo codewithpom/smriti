@@ -15,6 +15,7 @@ const SERVER_ERRORS = {
   invalid_multipart: 'The upload could not be read. Please try again.',
   invalid_file: 'The image file could not be read. Please try another copy.',
   storage_unavailable: 'Photo storage is temporarily unavailable. Your photo was not uploaded; try again shortly.',
+  upload_paused_for_storage_cutover: 'Uploads are paused briefly while photo storage is being switched. Please retry shortly.',
   too_many_pending: 'Too many uploads are waiting. Try again later.',
   file_required: 'Choose a file to upload.',
 };

@@ -152,6 +152,17 @@ test('upload validates magic bytes and stores a random pending key', async () =>
   assert.equal(rejected.status, 400);
 });
 
+test('upload cutover hold rejects before touching the current store', async () => {
+  let touched = false;
+  const response = await postUpload({
+    request: request('/api/upload', { method: 'POST' }),
+    env: { ...ENV, UPLOAD_HOLD: true, PHOTOS: { getWithMetadata() {}, async list() { touched = true; return { keys: [] }; } } },
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { ok: false, error: 'upload_paused_for_storage_cutover' });
+  assert.equal(touched, false);
+});
+
 test('upload rejects a streamed body over 10 MB with 413', async () => {
   const bytes = new Uint8Array(10 * 1024 * 1024 + 128 * 1024 + 1); // over the whole-request cap (file limit + multipart overhead)
   let sent = false;
