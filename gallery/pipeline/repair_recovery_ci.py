@@ -208,7 +208,11 @@ def _remap_gallery_data(data_dir: Path, output: Path, image_key: str) -> dict[st
         for name in (*SITE_JSON, "pending"):
             source = generated / f"{name}.json"
             if source.is_file():
-                shutil.copy2(source, output / source.name)
+                destination = output / source.name
+                # obfuscate.build writes to output.parent/data, which is the
+                # requested output itself for the repair staging layout.
+                if source.resolve() != destination.resolve():
+                    shutil.copy2(source, destination)
         return {name: output / f"{name}.json" for name in SITE_JSON}
     finally:
         faces.GALLERY, faces.DATA, faces.HELLO, build.DATA = previous

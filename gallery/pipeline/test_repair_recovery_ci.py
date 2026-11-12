@@ -183,6 +183,26 @@ class RepairRecoveryCITest(unittest.TestCase):
         self.assertTrue((output / "prepared.txt").is_file())
         open_remote.assert_not_called()
 
+    def test_remap_handles_obfuscator_writing_directly_to_requested_output(self):
+        data = self.root / "gallery" / "data"
+        output = self.root / "backup" / "repairs" / "data"
+        data.mkdir(parents=True)
+
+        def write_generated(_gallery, destination, _key, require_files=False):
+            generated = destination / "data"
+            generated.mkdir(parents=True, exist_ok=True)
+            for name in (*repair.SITE_JSON, "pending"):
+                (generated / f"{name}.json").write_text("[]")
+
+        with mock.patch.object(repair.faces, "match"), \
+             mock.patch.object(repair.build, "main"), \
+             mock.patch.object(repair.obfuscate, "build", side_effect=write_generated):
+            files = repair._remap_gallery_data(data, output, "k" * 32)
+
+        self.assertEqual(set(files), set(repair.SITE_JSON))
+        self.assertTrue(all(path.is_file() for path in files.values()))
+        self.assertEqual((output / "pending.json").read_text(), "[]")
+
     def test_activation_is_last_and_not_attempted_after_state_write_failure(self):
         class RecordingRemote:
             def __init__(self, fail=False):
