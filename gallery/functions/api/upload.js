@@ -5,6 +5,7 @@ import { requestScan } from '../_shared/github.js';
 const LIMIT = 10 * 1024 * 1024;
 const MULTIPART_OVERHEAD_LIMIT = 128 * 1024;
 const MAX_PENDING_PER_USER = 50; // free R2 allowance: one student cannot fill it
+const SHA256 = /^[a-f0-9]{64}$/;
 const TYPES = [
   { ext: 'jpg', mime: 'image/jpeg', test: b => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
   { ext: 'png', mime: 'image/png', test: b => b.length >= 8 && [137,80,78,71,13,10,26,10].every((v,i) => b[i] === v) },
@@ -61,7 +62,24 @@ export async function onRequestPost(context) {
   }
   const type = TYPES.find(candidate => candidate.test(bytes.subarray(0, 12)));
   if (!type) return errorResponse(400, 'unsupported_image');
-  const key = `pending/${auth.user.uid}/${Date.now()}-${crypto.randomUUID()}.${type.ext}`;
+  let sha, catalog, object;
+  try {
+    sha = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+  } catch { return errorResponse(400, 'invalid_file'); }
+  try { object = await store.get('state/catalog.json'); }
+  catch { return errorResponse(503, 'storage_unavailable'); }
+  if (!object) return errorResponse(503, 'duplicate_check_unavailable');
+  try {
+    catalog = await new Response(object.body).json();
+    if (!Array.isArray(catalog)) return errorResponse(503, 'duplicate_check_unavailable');
+    if (catalog.some(entry => entry?.sha === sha || entry?.upload_sha === sha)) return errorResponse(409, 'duplicate');
+  } catch { return errorResponse(503, 'duplicate_check_unavailable'); }
+  if (!SHA256.test(sha)) return errorResponse(400, 'invalid_file');
+  let existing;
+  try { existing = await store.list({ prefix: `pending/${auth.user.uid}/${sha}/` }); }
+  catch { return errorResponse(503, 'storage_unavailable'); }
+  if ((existing.objects ?? []).length) return errorResponse(409, 'duplicate');
+  const key = `pending/${auth.user.uid}/${sha}/${Date.now()}-${crypto.randomUUID()}.${type.ext}`;
   try { await store.put(key, bytes, { httpMetadata: { contentType: type.mime } }); }
   catch { return errorResponse(503, 'storage_unavailable'); }
   const scan = requestScan(env).catch(() => 'dispatch_failed');

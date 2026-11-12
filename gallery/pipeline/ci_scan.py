@@ -131,9 +131,39 @@ def _apply_reviews(remote, catalog, statuses):
     deleted_images = []
     deleted_reviews = []
     marker_keys = {key for key, _ in remote.ls("review/")}
+    batch_keys = sorted(key for key in marker_keys if key.startswith("review/batches/"))
+    batch_actions = {}
+    batch_upload_actions = {}
+    batch_targets = []
+    catalog_ids = {entry.get("id") for entry in catalog}
+    for batch_key in batch_keys:
+        marker = remote.get_json(batch_key)
+        photos = marker.get("photos") if isinstance(marker, dict) else None
+        upload_keys = marker.get("uploadKeys", []) if isinstance(marker, dict) else None
+        if (not isinstance(marker, dict) or marker.get("action") != "approve" or not isinstance(photos, list)
+                or not isinstance(upload_keys, list) or (not photos and not upload_keys)
+                or any(not isinstance(photo, str) or not re.fullmatch(r"p[0-9a-f]{8}", photo) for photo in photos)
+                or any(not isinstance(upload_key, str) or not re.fullmatch(r"pending/[A-Za-z0-9_-]{1,128}/(?:[a-f0-9]{64}/)?[0-9]+-[A-Za-z0-9-]+\.(?:jpg|png|webp)", upload_key) for upload_key in upload_keys)):
+            continue
+        photos = set(photos)
+        batch_targets.append((batch_key, photos))
+        for photo in photos:
+            previous = batch_actions.get(photo)
+            if previous is None or str(marker.get("at", "")) >= str(previous.get("at", "")):
+                batch_actions[photo] = marker
+        for upload_key in upload_keys:
+            previous = batch_upload_actions.get(upload_key)
+            if previous is None or str(marker.get("at", "")) >= str(previous.get("at", "")):
+                batch_upload_actions[upload_key] = marker
     for entry in catalog:
         key = f"review/{entry['id']}.json"
-        marker = remote.get_json(key) if key in marker_keys else None
+        marker = remote.get_json(key) if key in marker_keys and not key.startswith("review/batches/") else None
+        batch_marker = batch_actions.get(entry["id"])
+        upload_marker = batch_upload_actions.get(entry.get("upload_key"))
+        if upload_marker and (not marker or str(upload_marker.get("at", "")) > str(marker.get("at", ""))):
+            marker = upload_marker
+        if batch_marker and (not marker or str(batch_marker.get("at", "")) > str(marker.get("at", ""))):
+            marker = batch_marker
         if not marker or marker.get("action") not in ("approve", "reject"):
             kept.append(entry)
             continue
@@ -160,7 +190,14 @@ def _apply_reviews(remote, catalog, statuses):
             deleted_images.append(f"originals/uploads/{entry['name']}")
         if uid:
             statuses.setdefault(uid, []).append(item)
-        deleted_reviews.append(key)
+        if key in marker_keys:
+            deleted_reviews.append(key)
+    resolved_upload_keys = {item.get("key") for rows in statuses.values() for item in rows if item.get("key")}
+    for batch_key, photos in batch_targets:
+        batch = remote.get_json(batch_key, {})
+        upload_keys = set(batch.get("uploadKeys", []))
+        if photos.issubset(catalog_ids) and upload_keys.issubset(resolved_upload_keys):
+            deleted_reviews.append(batch_key)
     return kept, changed, deleted_images, deleted_reviews
 
 
@@ -403,6 +440,7 @@ def scan(args, remote=None):
             info = dedupe.image_info(uploads_dir / filename)
             prior = next((entry for entry in catalog if entry.get("upload_key") == key), None) if key else None
             if prior:
+                prior.setdefault("upload_sha", digest)
                 reused.append(prior)
                 if uid:
                     state = "awaiting_approval" if prior.get("pending") else "live"
@@ -415,7 +453,7 @@ def scan(args, remote=None):
                     statuses.setdefault(uid, []).append({"key": key, "state": "duplicate", "dupOf": match[1], "at": now()})
                 counts["duplicates"] += 1
                 continue
-            extra = {"sha": info["sha"], "ph": info["ph"], "pending": True}
+            extra = {"sha": info["sha"], "upload_sha": digest, "ph": info["ph"], "pending": True}
             if uid:
                 extra.update(uploader=uid, upload_key=key)
             entry = catalog_mod.entry_for(uploads_dir / filename, f"uploads/{filename}", "uploads", extra)
