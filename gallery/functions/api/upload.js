@@ -34,6 +34,9 @@ export async function onRequestPost(context) {
   const { request, env } = context;
   const auth = await requireApproved(request, env);
   if (auth.response) return auth.response;
+  if (env.UPLOAD_HOLD === true || String(env.UPLOAD_HOLD ?? '').toLowerCase() === 'true') {
+    return errorResponse(503, 'upload_paused_for_storage_cutover');
+  }
   let store, pending;
   try {
     store = storage(env);

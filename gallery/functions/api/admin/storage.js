@@ -30,6 +30,7 @@ export async function onRequestGet({ request, env }) {
   if (auth.response) return auth.response;
   const setting = await getVariable(env, 'STORAGE_BACKEND');
   const binding = storageBinding(env);
+  const uploadHeld = env.UPLOAD_HOLD === true || String(env.UPLOAD_HOLD ?? '').toLowerCase() === 'true';
   let store;
   try { store = storage(env); } catch { store = null; }
   const [usage, migration, held] = await Promise.all([
@@ -47,6 +48,7 @@ export async function onRequestGet({ request, env }) {
     firebaseConfigured: firebaseStorageConfigured(env),
     migrationReady: migrationReady(migration, env),
     scanHeld: held,
+    uploadHeld,
     firebaseReady: ready,
   });
 }
