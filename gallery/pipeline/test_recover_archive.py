@@ -200,6 +200,121 @@ class RecoverArchiveTests(unittest.TestCase):
             self.assertEqual([f["bbox"] for f in replayed], [f["bbox"] for f in old_faces])
             self.assertTrue(replayed[0]["embedding_missing"])
 
+    def test_restore_repairs_unambiguous_high_confidence_cached_detection_without_model(self):
+        import faces
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            pid = "p00000002"
+            old_faces = [
+                {"i": 0, "bbox": [0.1, 0.1, 0.2, 0.2], "person": "S100", "status": "confirmed"},
+                {"i": 1, "bbox": [0.6, 0.1, 0.2, 0.2], "person": None, "status": "rejected"},
+            ]
+            photo = {"id": pid, "w": 1000, "h": 500, "faces": old_faces}
+            (data / "catalog.json").write_text(json.dumps([{"id": pid, "width": 1000, "height": 500}]), encoding="utf-8")
+            cache = data / "fx" / "r50f"
+            cache.mkdir(parents=True)
+            # IoU with old face 0 is about .86: above the conservative recovery
+            # floor, but below the former .90 cutoff.
+            repaired_cache = {"b": [115, 50, 315, 150], "k": [[0, 0]] * 5, "w": 1000, "h": 500,
+                              "d": 0.96, "q": 0.71, "v": [0.0, 1.0] + [0.0] * 510}
+            matched_cache = {"b": [600, 50, 800, 150], "k": [[0, 0]] * 5, "w": 1000, "h": 500,
+                             "d": 0.99, "q": 0.8, "v": [1.0] + [0.0] * 511}
+            (cache / f"{pid}.json").write_text(json.dumps([repaired_cache, matched_cache]), encoding="utf-8")
+            raw = [{"photo": pid, "faces": [
+                {"bbox": [0.115, 0.1, 0.2, 0.2], "det": 0.96, "px": 100, "q": 0.71, "e": 0},
+                {"bbox": old_faces[1]["bbox"], "det": 0.99, "px": 100, "q": 0.8, "e": 1},
+            ]}]
+            (data / "faces_raw.json").write_text(json.dumps(raw), encoding="utf-8")
+            vectors = np.zeros((2, 512), dtype=np.float32)
+            vectors[0, 1] = 1.0
+            vectors[1, 0] = 1.0
+            np.save(data / "face_emb.npy", vectors)
+
+            counts = recover_archive.restore_face_layout(data, [photo], model_tag="r50f")
+            rows = json.loads((data / "faces_raw.json").read_text(encoding="utf-8"))[0]["faces"]
+            embeddings = np.load(data / "face_emb.npy", allow_pickle=False)
+            cache_rows = json.loads((cache / f"{pid}.json").read_text(encoding="utf-8"))
+            corrections = json.loads((data / "corrections.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(counts["repaired_embeddings"], 1)
+            self.assertEqual(counts["missing_embeddings"], 0)
+            self.assertEqual(counts["removed_extra_detections"], 1)
+            self.assertEqual([f["bbox"] for f in rows], [f["bbox"] for f in old_faces])
+            self.assertFalse(any(f.get("embedding_missing") for f in rows))
+            self.assertTrue(np.array_equal(embeddings[0], vectors[0]))
+            self.assertTrue(np.array_equal(embeddings[1], vectors[1]))
+            self.assertEqual([f["e"] for f in rows], [0, 1])
+            self.assertEqual(len(cache_rows), 2)
+            self.assertEqual(corrections["faces"], {f"{pid}:0": "S100", f"{pid}:1": "none"})
+
+            # Matching consumes only the rewritten cached embeddings and keeps
+            # the old confirmed/rejected decisions at their historical indices.
+            np.save(data / "ref_emb.npy", np.zeros((0, 512), dtype=np.float32))
+            (data / "ref_ids.json").write_text("[]", encoding="utf-8")
+            old_data = faces.DATA
+            try:
+                faces.DATA = data
+                faces.match()
+            finally:
+                faces.DATA = old_data
+            matched = json.loads((data / "faces.json").read_text(encoding="utf-8"))[pid]
+            self.assertEqual([(f["i"], f["person"], f["status"]) for f in matched],
+                             [(0, "S100", "confirmed"), (1, None, "rejected")])
+
+            # A future extraction consumes the repaired cache exactly, with no
+            # model loader and the same archived indices and boxes.
+            source = data / "source"
+            (source / "classroom").mkdir(parents=True)
+            write_image(source / "classroom" / f"{pid}.webp", (10, 20, 30))
+            old_state = (faces.DATA, faces.SRC, faces.GALLERY, faces.MODEL_TAG)
+            try:
+                faces.DATA, faces.SRC = data, source
+                faces.GALLERY, faces.MODEL_TAG = data.parent / "gallery", "r50f"
+                with patch.object(faces, "load_people", return_value={}), \
+                     patch.object(faces, "_references", return_value=(0, 0, 0)), \
+                     patch.object(faces, "_people_outputs"), \
+                     patch.object(faces, "get_app", side_effect=AssertionError("model must not load")):
+                    faces.extract()
+            finally:
+                faces.DATA, faces.SRC, faces.GALLERY, faces.MODEL_TAG = old_state
+            replayed = json.loads((data / "faces_raw.json").read_text(encoding="utf-8"))[0]["faces"]
+            self.assertEqual([f["bbox"] for f in replayed], [f["bbox"] for f in old_faces])
+            self.assertEqual([f["i"] if "i" in f else index for index, f in enumerate(replayed)], [0, 1])
+            self.assertFalse(any(f.get("embedding_missing") for f in replayed))
+
+    def test_repair_never_reuses_one_candidate_for_two_ambiguous_faces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp)
+            pid = "p00000003"
+            old_faces = [
+                {"i": 0, "bbox": [0.1, 0.1, 0.2, 0.2], "person": "S100", "status": "confirmed"},
+                {"i": 1, "bbox": [0.12, 0.1, 0.2, 0.2], "person": "S200", "status": "high"},
+            ]
+            photo = {"id": pid, "w": 1000, "h": 500, "faces": old_faces}
+            (data / "catalog.json").write_text(json.dumps([{"id": pid, "width": 1000, "height": 500}]), encoding="utf-8")
+            cache = data / "fx" / "r50f"
+            cache.mkdir(parents=True)
+            (cache / f"{pid}.json").write_text("[]", encoding="utf-8")
+            vectors = np.zeros((3, 512), dtype=np.float32)
+            vectors[2, 0] = 1.0
+            raw = [{"photo": pid, "faces": [
+                {"bbox": old_faces[0]["bbox"], "det": 0.0, "px": 100, "q": 0.0, "e": 0, "embedding_missing": True},
+                {"bbox": old_faces[1]["bbox"], "det": 0.0, "px": 100, "q": 0.0, "e": 1, "embedding_missing": True},
+                {"bbox": [0.11, 0.1, 0.2, 0.2], "det": 0.96, "px": 100, "q": 0.7, "e": 2},
+            ]}]
+            (data / "faces_raw.json").write_text(json.dumps(raw), encoding="utf-8")
+            np.save(data / "face_emb.npy", vectors)
+
+            counts = recover_archive.repair_cached_embeddings(data, [photo], model_tag="r50f")
+            rows = json.loads((data / "faces_raw.json").read_text(encoding="utf-8"))[0]["faces"]
+            self.assertEqual(counts["repaired_embeddings"], 0)
+            self.assertEqual(counts["remaining_missing_embeddings"], 2)
+            self.assertEqual(counts["removed_extra_detections"], 0)
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(rows[0]["embedding_missing"])
+            self.assertTrue(rows[1]["embedding_missing"])
+
     def test_ambiguous_or_shifted_boxes_are_reported_unresolved(self):
         deployed = [{"id": "p1", "faces": [
             {"i": 0, "bbox": [0.1, 0.1, 0.2, 0.2], "person": "S123", "status": "high"},
