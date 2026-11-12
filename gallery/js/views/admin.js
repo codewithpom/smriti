@@ -37,6 +37,7 @@ export function tally(questions, votes, users) {
 
 export function mount(root, ctx) {
   let tab = 'Users';
+  const uploadObjectUrls = new Set();
   const status = el('p', { class: 'admin-status muted', role: 'status', 'aria-live': 'polite' });
   const body = el('section', { class: 'admin-panel', id: 'admin-panel', role: 'tabpanel' });
   const nav = el('div', { class: 'admin-tabs', role: 'tablist', 'aria-label': 'Administration' });
@@ -74,6 +75,8 @@ export function mount(root, ctx) {
     return data;
   };
   async function render() {
+    for (const url of uploadObjectUrls) URL.revokeObjectURL(url);
+    uploadObjectUrls.clear();
     buttons.forEach((b, i) => { b.setAttribute('aria-selected', String(TABS[i] === tab)); b.tabIndex = TABS[i] === tab ? 0 : -1; });
     body.replaceChildren(); status.textContent = 'Loading…';
     try {
@@ -147,27 +150,80 @@ export function mount(root, ctx) {
     if (!disputed.length) body.append(el('p', { class: 'muted', text: 'No disputed questions.' }));
   }
   async function uploads() {
-    const { items = [], queued = 0 } = await api('uploads');
+    const { items = [], queuedItems = [], queued = 0 } = await api('uploads');
+    const users = await listUsers().catch(() => []);
+    const userById = new Map(users.map(user => [user.uid, user]));
     body.append(el('h2', { text: 'Uploads' }));
-    if (queued) body.append(el('p', { class: 'pill', text: `${queued} uploads waiting to be processed` }));
+    const groups = new Map();
+    const ensureGroup = (uid) => {
+      if (!groups.has(uid)) groups.set(uid, { items: [], queued: [] });
+      return groups.get(uid);
+    };
     for (const item of items) {
-      const faces = (item.faces || []).map((face) => {
-        const person = ctx?.store?.people?.find((entry) => entry.id === (face.person || face.personId));
-        return person?.name || 'Unknown person';
-      });
-      let armed = false;
-      const reject = button('Reject', async () => {
-        if (!armed) { armed = true; reject.textContent = 'Click again to reject'; return; }
-        await moderate(item.photo, 'reject');
-      }, 'btn btn-quiet');
-      body.append(el('article', { class: 'admin-row' }, el('img', { class: 'admin-preview', src: imgUrl(item.thumb), alt: 'Processed upload thumbnail', loading: 'lazy' }),
-        el('span', { class: 'admin-main' }, el('strong', { text: `Uploader ${String(item.uploader || item.uid || 'unknown').slice(0, 8)}` }),
-          el('span', { class: 'muted small', text: relative(item.at || item.createdAt || item.uploadedAt) }),
-          el('span', { class: 'muted small', text: faces.length ? faces.join(', ') : 'No faces identified' }),
-          item.dupOf && el('span', { class: 'pill', text: `Duplicate of ${item.dupOf}` })),
-        button('Approve', () => moderate(item.photo, 'approve'), 'btn btn-primary'), reject));
+      const uid = item.uploader || item.uid || 'unknown';
+      ensureGroup(uid).items.push(item);
     }
-    if (!items.length) body.append(el('p', { class: 'muted', text: 'No uploads need review.' }));
+    for (const item of queuedItems) ensureGroup(item.uid || 'unknown').queued.push(item);
+    for (const [uid, uploads] of groups) {
+      const { items: reviewed, queued: raw } = uploads;
+      const user = userById.get(uid);
+      const label = user?.email || `Uploader ${uid.slice(0, 8)}`;
+      const group = el('section', { class: 'admin-upload-group', 'aria-label': `${label} uploads` });
+      const approveAll = uid === 'unknown' ? null : button(`Approve all ${reviewed.length + raw.length}`, () => approveUserUploads(uid), 'btn btn-primary');
+      group.append(el('div', { class: 'admin-upload-heading' },
+        el('div', {}, el('h3', { text: label }), el('span', { class: 'muted small', text: `${reviewed.length + raw.length} upload${reviewed.length + raw.length === 1 ? '' : 's'} · ${reviewed.length} processed, ${raw.length} queued` })),
+        approveAll));
+      for (const item of raw) {
+        const preview = el('img', { class: 'admin-preview', alt: 'Queued upload preview', loading: 'lazy', decoding: 'async' });
+        const loadPreview = button('Preview image', async () => {
+          loadPreview.disabled = true;
+          try {
+            const token = await getToken();
+            const response = await fetch(`/api/admin/upload-image?key=${encodeURIComponent(item.key)}`, { headers: { authorization: `Bearer ${token}` } });
+            if (!response.ok) throw new Error(`Could not load image (${response.status}).`);
+            const url = URL.createObjectURL(await response.blob());
+            uploadObjectUrls.add(url);
+            preview.src = url;
+            loadPreview.textContent = 'Image loaded';
+          } catch (error) { loadPreview.disabled = false; loadPreview.textContent = error.message; }
+        });
+        group.append(el('article', { class: 'admin-row' }, preview,
+          el('span', { class: 'admin-main' }, el('strong', { text: `Queued ${relative(item.at)}` }), el('span', { class: 'muted small', text: 'Waiting for image processing' })),
+          loadPreview));
+      }
+      for (const item of reviewed) {
+        const faces = (item.faces || []).map((face) => {
+          const person = ctx?.store?.people?.find((entry) => entry.id === (face.person || face.personId));
+          return person?.name || 'Unknown person';
+        });
+        let armed = false;
+        const reject = button('Reject', async () => {
+          if (!armed) { armed = true; reject.textContent = 'Click again to reject'; return; }
+          await moderate(item.photo, 'reject');
+        }, 'btn btn-quiet');
+        const full = imgUrl(item.web || item.thumb);
+        group.append(el('article', { class: 'admin-row' },
+          el('img', { class: 'admin-preview', src: imgUrl(item.thumb), alt: 'Upload thumbnail', loading: 'lazy', decoding: 'async' }),
+          el('span', { class: 'admin-main' }, el('strong', { text: `Uploaded ${relative(item.at || item.createdAt || item.uploadedAt)}` }),
+            el('span', { class: 'muted small', text: faces.length ? faces.join(', ') : 'No faces identified' }),
+            item.dupOf && el('span', { class: 'pill', text: `Duplicate of ${item.dupOf}` }),
+            el('details', { class: 'admin-upload-detail' }, el('summary', { text: 'View full image and details' }),
+              el('img', { class: 'admin-upload-full', src: full, alt: `Full upload from ${label}`, loading: 'lazy', decoding: 'async' }),
+              el('span', { class: 'muted small', text: `Photo ${item.photo} · ${faces.length} detected face${faces.length === 1 ? '' : 's'}` }))),
+          button('Approve', () => moderate(item.photo, 'approve'), 'btn btn-primary'), reject));
+      }
+      body.append(group);
+    }
+    if (!items.length && !queuedItems.length && !queued) body.append(el('p', { class: 'muted', text: 'No uploads need review.' }));
+  }
+  async function approveUserUploads(uid) {
+    try {
+      const result = await api('uploads', { method: 'POST', body: JSON.stringify({ action: 'approve-user', uid }) });
+      await render();
+      status.textContent = `${result.approved} uploads approved. Queued images will be approved as the scan processes them.`;
+    } catch (error) {
+      status.textContent = error.message === 'no_uploads_to_approve' ? 'This user has no uploads waiting for review.' : error.message;
+    }
   }
   async function moderate(photo, action) {
     try {
@@ -328,5 +384,5 @@ export function mount(root, ctx) {
     body.append(el('h2', { text: 'Export corrections' }), el('p', { class: 'muted', text: 'Apply the approved vote tally and download the correction file.' }), el('div', { class: 'rv-actions' }, link, send));
   }
   render();
-  return { title: 'Administration', unmount() { body.replaceChildren(); } };
+  return { title: 'Administration', unmount() { for (const url of uploadObjectUrls) URL.revokeObjectURL(url); uploadObjectUrls.clear(); body.replaceChildren(); } };
 }

@@ -1,10 +1,11 @@
 import test, { before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, sign as rsaSign } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign as rsaSign } from 'node:crypto';
 import { resetJwksCache } from '../_shared/auth.js';
 import { onRequestGet as getData } from '../api/data/[name].js';
 import { onRequestGet as getMe } from '../api/me.js';
 import { onRequestPost as postUpload } from '../api/upload.js';
+import { onRequestPost as checkUploads } from '../api/uploads/check.js';
 import { onRequestGet as getUploads, onRequestPost as actOnUpload } from '../api/admin/uploads.js';
 import { onRequestGet as getUploadImage } from '../api/admin/upload-image.js';
 
@@ -131,6 +132,7 @@ test('me reports profile and admin status; malformed or absent tokens fail close
 
 test('upload validates magic bytes and stores a random pending key', async () => {
   const bucket = r2();
+  await bucket.put('state/catalog.json', new TextEncoder().encode('[]'));
   for (const [bytes, ext, mime] of [
     [[0xff, 0xd8, 0xff, 1], 'jpg', 'image/jpeg'],
     [[137, 80, 78, 71, 13, 10, 26, 10], 'png', 'image/png'],
@@ -142,7 +144,7 @@ test('upload validates magic bytes and stores a random pending key', async () =>
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.ok, true);
-    assert.match(body.key, new RegExp(`^pending/student-1/\\d+-[0-9a-f-]+\\.${ext}$`));
+    assert.match(body.key, new RegExp(`^pending/student-1/[a-f0-9]{64}/\\d+-[0-9a-f-]+\\.${ext}$`));
     assert.equal(objects.get(body.key).httpMetadata.contentType, mime);
   }
 
@@ -150,6 +152,47 @@ test('upload validates magic bytes and stores a random pending key', async () =>
   invalid.set('file', new Blob(['not an image'], { type: 'image/jpeg' }), 'x.jpg');
   const rejected = await postUpload({ request: request('/api/upload', { method: 'POST', body: invalid }), env: { ...ENV, PHOTOS: bucket } });
   assert.equal(rejected.status, 400);
+});
+
+test('exact duplicate preflight checks the archive and this user\'s queued uploads', async () => {
+  const bucket = r2();
+  const archive = 'a'.repeat(64), queued = 'b'.repeat(64), fresh = 'c'.repeat(64);
+  await bucket.put('state/catalog.json', new TextEncoder().encode(JSON.stringify([{ id: 'p0123abcd', upload_sha: archive }])));
+  await bucket.put(`pending/student-1/${queued}/123-abc.jpg`, Uint8Array.from([0xff, 0xd8, 0xff]));
+  const response = await checkUploads({
+    request: request('/api/uploads/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hashes: [archive, queued, fresh] }) }),
+    env: { ...ENV, PHOTOS: bucket },
+  });
+  assert.deepEqual((await response.json()).items, [
+    { sha: archive, state: 'archive' },
+    { sha: queued, state: 'queued' },
+    { sha: fresh, state: 'new' },
+  ]);
+  assert.equal((await checkUploads({ request: request('/api/uploads/check', { method: 'POST', as: 'pending', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hashes: [fresh] }) }), env: { ...ENV, PHOTOS: bucket } })).status, 403);
+  assert.equal((await checkUploads({ request: request('/api/uploads/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hashes: ['bad'] }) }), env: { ...ENV, PHOTOS: bucket } })).status, 400);
+});
+
+test('upload rejects exact archive duplicates before writing a pending object', async () => {
+  const bucket = r2();
+  const bytes = Uint8Array.from([0xff, 0xd8, 0xff, 1]);
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  await bucket.put('state/catalog.json', new TextEncoder().encode(JSON.stringify([{ id: 'p0123abcd', upload_sha: sha }])));
+  const form = new FormData();
+  form.set('file', new Blob([bytes], { type: 'image/jpeg' }), 'same.jpg');
+  const response = await postUpload({ request: request('/api/upload', { method: 'POST', body: form }), env: { ...ENV, PHOTOS: bucket } });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { ok: false, error: 'duplicate' });
+  assert.equal((await bucket.list({ prefix: 'pending/' })).objects.length, 0);
+
+  const queuedBucket = r2();
+  await queuedBucket.put('state/catalog.json', new TextEncoder().encode('[]'));
+  await queuedBucket.put(`pending/student-1/${sha}/123-abc.jpg`, bytes);
+  const queuedForm = new FormData();
+  queuedForm.set('file', new Blob([bytes], { type: 'image/jpeg' }), 'same.jpg');
+  const queued = await postUpload({ request: request('/api/upload', { method: 'POST', body: queuedForm }), env: { ...ENV, PHOTOS: queuedBucket } });
+  assert.equal(queued.status, 409);
+  assert.deepEqual(await queued.json(), { ok: false, error: 'duplicate' });
+  assert.equal((await queuedBucket.list({ prefix: `pending/student-1/${sha}/` })).objects.length, 1);
 });
 
 test('upload cutover hold rejects before touching the current store', async () => {
@@ -180,7 +223,7 @@ test('upload reports storage outages without exposing backend failures', async (
   form.set('file', new Blob([Uint8Array.from([0xff, 0xd8, 0xff, 1])], { type: 'image/jpeg' }), 'a.jpg');
   for (const photos of [
     { getWithMetadata() {}, async list() { throw new Error('private backend details'); } },
-    { getWithMetadata() {}, async list() { return { keys: [], list_complete: true }; }, async put() { throw new Error('private backend details'); } },
+    { async get() { return { body: new TextEncoder().encode('[]') }; }, async list() { return { objects: [], truncated: false }; }, async put() { throw new Error('private backend details'); } },
   ]) {
     const response = await postUpload({ request: request('/api/upload', { method: 'POST', body: form }), env: { ...ENV, PHOTOS: photos } });
     assert.equal(response.status, 503);
@@ -188,13 +231,38 @@ test('upload reports storage outages without exposing backend failures', async (
   }
 });
 
+test('admin approves all currently reviewed uploads from one uploader with one marker', async () => {
+  const bucket = r2();
+  await bucket.put('pending/student-1/123-queued.jpg', Uint8Array.from([0xff, 0xd8, 0xff]));
+  await bucket.put('data/pending.json', new TextEncoder().encode(JSON.stringify({ items: [
+    { photo: 'p00000001', uploader: 'student-1' }, { photo: 'p00000002', uploader: 'student-1' },
+    { photo: 'p00000003', uploader: 'student-2' },
+  ] })));
+  const response = await actOnUpload({
+    request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'approve-user', uid: 'student-1' }) }),
+    env: { ...ENV, PHOTOS: bucket },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, approved: 3, queued: 1 });
+  const batches = await bucket.list({ prefix: 'review/batches/' });
+  assert.equal(batches.objects.length, 1);
+  const marker = JSON.parse(new TextDecoder().decode((await bucket.get(batches.objects[0].key)).body));
+  assert.deepEqual(marker, { action: 'approve', photos: ['p00000001', 'p00000002'], uploadKeys: ['pending/student-1/123-queued.jpg'], by: 'admin', at: marker.at });
+  assert.ok(Number.isFinite(Date.parse(marker.at)));
+});
+
 test('admin routes list and preview pending uploads; decisions use markers', async () => {
   const bucket = r2();
   const key = `pending/student-1/${Date.now()}-abc123.jpg`;
   await bucket.put(key, Uint8Array.from([0xff, 0xd8, 0xff]), { httpMetadata: { contentType: 'image/jpeg' } });
+  await bucket.put('pending/student-1/123-queued.jpg', Uint8Array.from([0xff, 0xd8, 0xff]));
   const env = { ...ENV, PHOTOS: bucket };
   const list = await getUploads({ request: request('/api/admin/uploads', { as: 'admin' }), env });
-  assert.deepEqual(await list.json(), { ok: true, items: [], queued: 1 });
+  const listed = await list.json();
+  assert.equal(listed.ok, true);
+  assert.deepEqual(listed.items, []);
+  assert.equal(listed.queued, 2);
+  assert.deepEqual(new Set(listed.queuedItems.map(item => item.key)), new Set([key, 'pending/student-1/123-queued.jpg']));
   assert.equal((await getUploadImage({ request: request(`/api/admin/upload-image?key=${encodeURIComponent(key)}`, { as: 'admin' }), env })).status, 200);
   const approved = await actOnUpload({ request: request('/api/admin/uploads', { method: 'POST', as: 'admin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ photo: 'p0123abcd', action: 'approve' }) }), env });
   assert.equal(approved.status, 200);

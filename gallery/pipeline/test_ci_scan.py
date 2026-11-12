@@ -101,6 +101,43 @@ class ScanTest(unittest.TestCase):
          ci_scan.catalog_mod.OUT) = self.old_module_paths
         self.tmp.cleanup()
 
+    def test_admin_batch_approval_applies_only_its_snapshot(self):
+        entry = {"id": "p0123abcd", "name": "upload.jpg", "uploader": "user-a",
+                 "upload_key": "pending/user-a/123-a.jpg", "pending": True}
+        key = "review/batches/batch-1.json"
+        self.local.put_json(key, {"action": "approve", "photos": [entry["id"]], "by": "admin", "at": "2026-11-12T00:00:00Z"})
+        statuses = {}
+        kept, changed, deleted_images, deleted_reviews = ci_scan._apply_reviews(self.local, [entry], statuses)
+        self.assertTrue(changed)
+        self.assertEqual(kept, [entry])
+        self.assertFalse(entry["pending"])
+        self.assertEqual(statuses["user-a"][0]["state"], "live")
+        self.assertEqual(deleted_images, [])
+        self.assertEqual(deleted_reviews, [key])
+
+    def test_admin_batch_approval_includes_queued_uploads_and_waits_until_processed(self):
+        upload_key = "pending/user-a/123-queued.jpg"
+        entry = {"id": "p0123abce", "name": "queued.jpg", "uploader": "user-a",
+                 "upload_key": upload_key, "pending": True}
+        batch_key = "review/batches/batch-queued.json"
+        self.local.put_json(batch_key, {"action": "approve", "photos": [], "uploadKeys": [upload_key],
+                                       "by": "admin", "at": "2026-11-12T00:00:00Z"})
+        statuses = {"user-a": [{"key": upload_key, "state": "awaiting_approval", "photo": entry["id"]}]}
+        kept, changed, _, deleted_reviews = ci_scan._apply_reviews(self.local, [entry], statuses)
+        self.assertTrue(changed)
+        self.assertFalse(entry["pending"])
+        self.assertEqual(statuses["user-a"][-1]["state"], "live")
+        self.assertEqual(kept, [entry])
+        self.assertEqual(deleted_reviews, [batch_key])
+
+    def test_admin_batch_with_queued_upload_waits_for_pipeline_resolution(self):
+        upload_key = "pending/user-a/123-queued.jpg"
+        batch_key = "review/batches/batch-queued.json"
+        self.local.put_json(batch_key, {"action": "approve", "photos": [], "uploadKeys": [upload_key],
+                                       "by": "admin", "at": "2026-11-12T00:00:00Z"})
+        _, _, _, deleted_reviews = ci_scan._apply_reviews(self.local, [], {})
+        self.assertEqual(deleted_reviews, [])
+
     def test_pending_duplicate_approval_rejection_and_safe_logs(self):
         with patch.object(ci_scan, "open_remote", return_value=self.local), patch("sys.stdout", new_callable=__import__("io").StringIO) as output:
             self.assertEqual(ci_scan.scan(type("Args", (), {"eval": False, "recluster": False, "reembed": False, "fetch_facebook": False})()), 0)
@@ -121,6 +158,7 @@ class ScanTest(unittest.TestCase):
             self.assertEqual(self.local.get(f"originals/uploads/raw/{digest}.{extension}"), payload)
         catalog = self.local.get_json("state/catalog.json")
         self.assertEqual(sum(bool(e.get("pending")) for e in catalog), 1)
+        self.assertEqual(next(e for e in catalog if e.get("pending"))["upload_sha"], hashlib.sha256(self.raw).hexdigest())
         self.assertEqual(len(self.local.get_json("data/photos.json")), 2)
         self.assertEqual(len(self.local.get_json("data/pending.json")["items"]), 1)
         self.assertEqual(self.local.ls("pending/"), [])

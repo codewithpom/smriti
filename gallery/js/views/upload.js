@@ -15,6 +15,8 @@ const SERVER_ERRORS = {
   invalid_multipart: 'The upload could not be read. Please try again.',
   invalid_file: 'The image file could not be read. Please try another copy.',
   storage_unavailable: 'Photo storage is temporarily unavailable. Your photo was not uploaded; try again shortly.',
+  duplicate_check_unavailable: 'We could not check the archive right now. Please try again shortly.',
+  duplicate: 'This exact photo is already uploaded.',
   upload_paused_for_storage_cutover: 'Uploads are paused briefly while photo storage is being switched. Please retry shortly.',
   too_many_pending: 'Too many uploads are waiting. Try again later.',
   file_required: 'Choose a file to upload.',
@@ -77,6 +79,9 @@ export function mount(root, ctx) {
   }
 
   function statusFor(row) {
+    if (row.serverDuplicate === 'archive') return 'Exact copy already in the archive';
+    if (row.serverDuplicate === 'queued') return 'Exact copy already uploaded; waiting to process';
+    if (row.state === 'duplicate') return 'Exact copy already uploaded';
     const match = row.match;
     if (row.state === 'failed') return row.error || 'Upload failed';
     if (row.state) return { checking: 'Checking image…', uploading: 'Uploading…', uploaded: 'Uploaded' }[row.state] || row.state;
@@ -91,7 +96,7 @@ export function mount(root, ctx) {
       const target = row.match?.id && !row.match.batch
         ? (ctx.store.photos.find((photo) => photo.id === row.match.id) || recent.find((photo) => (photo.photo || photo.id) === row.match.id)) : null;
       const thumb = target?.thumb ? el('a', { href: `#/photo/${target.id}`, 'aria-label': 'Open matching photo' }, el('img', { class: 'upload-match-thumb', src: imgUrl(target.thumb), alt: '' })) : null;
-      const toggle = row.match && !row.error ? el('label', { class: 'upload-choice' }, el('input', { type: 'checkbox', checked: row.include, onchange: (event) => { row.include = event.target.checked; updateSubmit(); } }), row.match.kind === 'duplicate' ? 'Upload anyway' : 'Skip this photo') : null;
+      const toggle = row.match && !row.error && !row.serverDuplicate ? el('label', { class: 'upload-choice' }, el('input', { type: 'checkbox', checked: row.include, onchange: (event) => { row.include = event.target.checked; updateSubmit(); } }), row.match.kind === 'duplicate' ? 'Upload anyway' : 'Skip this photo') : null;
       const action = row.state === 'failed' ? el('button', { type: 'button', class: 'btn btn-quiet', onclick: () => uploadRow(row) }, 'Retry') : null;
       return el('article', { class: 'upload-row' }, el('img', { class: 'upload-file-thumb', src: row.url, alt: '', width: '52', height: '52' }),
         el('div', { class: 'upload-file-info' }, el('strong', { text: row.file.name }), el('span', { class: 'muted small', text: `${fileSize(row.file.size)} · ${statusFor(row)}` }),
@@ -101,7 +106,7 @@ export function mount(root, ctx) {
   }
 
   function updateSubmit() {
-    const count = rows.filter((row) => row.include && !row.state?.startsWith('uploaded') && row.state !== 'uploading' && !row.error).length;
+    const count = rows.filter((row) => row.include && !row.serverDuplicate && !row.state?.startsWith('uploaded') && row.state !== 'uploading' && row.state !== 'duplicate' && !row.error).length;
     submit.textContent = `Upload ${plural(count, 'photo')}`;
     submit.disabled = count === 0 || rows.some((row) => row.state === 'checking' || row.state === 'uploading');
   }
@@ -142,6 +147,27 @@ export function mount(root, ctx) {
       }
       renderRows();
     }
+    const checkable = accepted.filter(row => row.info && !row.error);
+    if (checkable.length) {
+      try {
+        const checked = await api('/api/uploads/check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ hashes: checkable.map(row => row.info.sha) }),
+        });
+        const byHash = new Map((checked.items || []).map(item => [item.sha, item.state]));
+        for (const row of checkable) {
+          const state = byHash.get(row.info.sha);
+          if (state === 'archive' || state === 'queued') {
+            row.serverDuplicate = state;
+            row.include = false;
+          }
+        }
+        renderRows();
+      } catch {
+        live.textContent = 'Exact duplicate check is unavailable. The server will check again before saving.';
+      }
+    }
   }
 
   async function uploadRow(row) {
@@ -152,6 +178,12 @@ export function mount(root, ctx) {
       const form = new FormData(); form.append('file', row.file);
       const response = await fetch('/api/upload', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form });
       const result = await response.json().catch(() => ({}));
+      if (response.status === 409 && result.error === 'duplicate') {
+        row.state = 'duplicate'; row.serverDuplicate = 'archive'; row.include = false;
+        renderRows();
+        live.textContent = `${row.file.name} is already uploaded.`;
+        return;
+      }
       if (!response.ok || !result.ok) throw new Error(SERVER_ERRORS[result.error] || 'Upload failed. Please try again.');
       row.state = 'uploaded';
     } catch (error) { row.state = 'failed'; row.error = error.message || 'Upload failed. Please try again.'; }
