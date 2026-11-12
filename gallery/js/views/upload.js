@@ -6,8 +6,15 @@ const MAX_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 30;
 const TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const SERVER_ERRORS = {
+  unauthorized: 'Please sign in again.',
+  invalid_token: 'Your sign-in expired. Please sign in again.',
+  profile_unavailable: 'We could not verify your account. Please try again shortly.',
+  not_approved: 'Your account is not approved for photo uploads yet.',
   too_large: 'This file is too large.',
   unsupported_image: 'This image type is not supported.',
+  invalid_multipart: 'The upload could not be read. Please try again.',
+  invalid_file: 'The image file could not be read. Please try another copy.',
+  storage_unavailable: 'Photo storage is temporarily unavailable. Your photo was not uploaded; try again shortly.',
   too_many_pending: 'Too many uploads are waiting. Try again later.',
   file_required: 'Choose a file to upload.',
 };
@@ -37,6 +44,7 @@ const fileSize = (bytes) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(byt
 
 function scanText(scan) {
   if (!scan) return '';
+  if (scan.holdReason === 'storage_migration') return 'Upload received and queued. Processing is paused during a storage migration.';
   if (scan.state === 'queued') return 'Processing will start shortly';
   if (scan.state === 'running') return `Processing: ${scan.stage || 'working'} (step ${scan.step || 1} of ${scan.steps || 1})`;
   if (scan.state === 'done') return `Last processed ${relativeTime(scan.finishedAt || scan.updatedAt || scan.createdAt)}`;

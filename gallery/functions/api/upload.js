@@ -34,7 +34,13 @@ export async function onRequestPost(context) {
   const { request, env } = context;
   const auth = await requireApproved(request, env);
   if (auth.response) return auth.response;
-  const pending = await storage(env).list({ prefix: `pending/${auth.user.uid}/` });
+  let store, pending;
+  try {
+    store = storage(env);
+    pending = await store.list({ prefix: `pending/${auth.user.uid}/` });
+  } catch {
+    return errorResponse(503, 'storage_unavailable');
+  }
   if ((pending.objects ?? []).length >= MAX_PENDING_PER_USER) return errorResponse(429, 'too_many_pending');
   let requestBytes;
   try { requestBytes = await readLimited(request.body, LIMIT + MULTIPART_OVERHEAD_LIMIT); } catch (error) {
@@ -53,7 +59,8 @@ export async function onRequestPost(context) {
   const type = TYPES.find(candidate => candidate.test(bytes.subarray(0, 12)));
   if (!type) return errorResponse(400, 'unsupported_image');
   const key = `pending/${auth.user.uid}/${Date.now()}-${crypto.randomUUID()}.${type.ext}`;
-  await storage(env).put(key, bytes, { httpMetadata: { contentType: type.mime } });
+  try { await store.put(key, bytes, { httpMetadata: { contentType: type.mime } }); }
+  catch { return errorResponse(503, 'storage_unavailable'); }
   const scan = requestScan(env).catch(() => 'dispatch_failed');
   if (typeof context.waitUntil === 'function') context.waitUntil(scan); else await scan;
   return jsonResponse({ ok: true, key });

@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // All object access is proxied by authenticated Pages Functions and the
+    // bucket-scoped service account. Browsers never receive direct access.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

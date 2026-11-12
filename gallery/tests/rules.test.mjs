@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { getBytes, ref, uploadBytes } from 'firebase/storage';
 
 const projectId = 'demo-rkmv-gallery';
 let env;
 before(async () => {
-  env = await initializeTestEnvironment({ projectId, firestore: { rules: fs.readFileSync('../firestore.rules', 'utf8') } });
+  env = await initializeTestEnvironment({ projectId,
+    firestore: { rules: fs.readFileSync('../firestore.rules', 'utf8') },
+    storage: { rules: fs.readFileSync('../storage.rules', 'utf8') },
+  });
 });
 beforeEach(async () => {
   await env.clearFirestore(); // every test starts from the same fixtures
@@ -235,4 +239,12 @@ test('admin approves a pending person and a legacy doc without status; students 
   await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0001'), { status: 'approved' }));
   await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0001'), { status: 'pending' }));
   await assertSucceeds(updateDoc(doc(admin(), 'people_extra/S0002'), { status: 'approved' }));
+});
+
+test('browser clients cannot read or write private storage objects', async () => {
+  const storage = env.unauthenticatedContext().storage(`gs://${projectId}`);
+  await assertFails(getBytes(ref(storage, 'pending/unauthenticated/photo.jpg')));
+  await assertFails(uploadBytes(ref(storage, 'pending/unauthenticated/photo.jpg'), new Uint8Array([0xff, 0xd8, 0xff]), {
+    contentType: 'image/jpeg',
+  }));
 });

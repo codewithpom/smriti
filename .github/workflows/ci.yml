@@ -29,7 +29,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pillow numpy scipy networkx==3.3 scikit-learn==1.5.2 opencv-python-headless==4.10.0.84 cryptography==48.0.0
-      - run: python -m unittest test_tally test_obfuscate test_filter_batch test_name_sheet test_apply_cluster_names test_fetch_students test_people_store test_import_extra_people test_import_names_csv test_eval_match test_eval_groups test_faces_decide test_auto_people test_ingest_facebook test_aliases test_aliases_more test_new_person test_new_staff test_new_student_noreg test_dedupe test_face_quality test_faces_cluster test_remote test_ci_scan test_recover_archive test_encrypted_backup test_recover_ci test_finalize_recovery test_repair_recovery_ci
+      - run: python -m unittest test_tally test_obfuscate test_filter_batch test_name_sheet test_apply_cluster_names test_fetch_students test_people_store test_import_extra_people test_import_names_csv test_eval_match test_eval_groups test_faces_decide test_auto_people test_ingest_facebook test_aliases test_aliases_more test_new_person test_new_staff test_new_student_noreg test_dedupe test_face_quality test_faces_cluster test_remote test_ci_scan test_migrate_storage test_recover_archive test_encrypted_backup test_recover_ci test_finalize_recovery test_repair_recovery_ci
         working-directory: gallery/pipeline
       - run: python gallery/demo/check_demo.py
 

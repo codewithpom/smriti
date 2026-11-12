@@ -1,0 +1,70 @@
+name: Copy KV data to Firebase Storage
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "Initial best-effort copy or repeatable stable delta"
+        type: choice
+        required: true
+        options: [initial, delta]
+        default: initial
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-pipeline
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ github.ref == 'refs/heads/automation/scan' && (vars.STORAGE_BACKEND == '' || vars.STORAGE_BACKEND == 'kv') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || 'kv' }}
+      MIGRATION_PHASE: ${{ inputs.phase }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+      FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            gallery/pipeline
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Install Firebase Storage client dependency
+        run: python -m pip install google-auth[requests]==2.62.2
+      - name: Materialize temporary Firebase credentials
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          credential = Path(os.environ["RUNNER_TEMP"]) / "firebase-storage-migration.json"
+          raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+          if not raw:
+              raise SystemExit("Firebase credentials are not configured")
+          try:
+              parsed = json.loads(raw)
+          except json.JSONDecodeError:
+              raise SystemExit("Firebase credentials are invalid") from None
+          if not isinstance(parsed, dict) or parsed.get("type") != "service_account":
+              raise SystemExit("Firebase credentials are invalid")
+          fd = os.open(credential, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, "w", encoding="utf-8") as output:
+              json.dump(parsed, output)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"GOOGLE_APPLICATION_CREDENTIALS={credential}\n")
+          PY
+      - name: Copy and verify logical KV objects
+        run: python gallery/pipeline/migrate_storage.py --phase "$MIGRATION_PHASE"
+      - name: Remove temporary Firebase credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/firebase-storage-migration.json"

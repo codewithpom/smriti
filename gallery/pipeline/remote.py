@@ -207,6 +207,168 @@ class R2Remote(Remote):
         return sum(1 for p in Path(src).rglob("*") if p.is_file())
 
 
+class FirebaseStorageRemote(Remote):
+    """Google Cloud Storage JSON API adapter for the Firebase Storage bucket."""
+
+    backend = "firebase"
+    originals = True
+    scope = "https://www.googleapis.com/auth/devstorage.read_write"
+    api_root = "https://storage.googleapis.com/storage/v1"
+    upload_root = "https://storage.googleapis.com/upload/storage/v1"
+
+    def __init__(self, bucket, credentials_file=None, session=None):
+        super().__init__()
+        self.bucket = bucket
+        if session is None:
+            if not credentials_file:
+                raise ValueError("GOOGLE_APPLICATION_CREDENTIALS is required")
+            from google.auth.transport.requests import AuthorizedSession
+            from google.oauth2 import service_account
+
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_file, scopes=[self.scope])
+            session = AuthorizedSession(credentials)
+        self.session = session
+        self.bucket_path = f"/b/{quote(bucket, safe='')}/o"
+
+    def _request(self, method, url, *, allow_missing=False, **kwargs):
+        response = self.session.request(method, url, timeout=120, **kwargs)
+        status = response.status_code
+        if status == 404 and allow_missing:
+            return None
+        if status >= 400:
+            raise RuntimeError(f"Firebase Storage request failed ({status})")
+        return response
+
+    def _object_url(self, key, *, download=False):
+        root = "https://storage.googleapis.com/download/storage/v1" if download else self.api_root
+        return f"{root}{self.bucket_path}/{quote(key, safe='')}"
+
+    def ls(self, prefix=""):
+        out, page_token = [], None
+        while True:
+            params = {"prefix": prefix, "pageSize": 1000, "fields": "items(name,size),nextPageToken"}
+            if page_token:
+                params["pageToken"] = page_token
+            response = self._request("GET", f"{self.api_root}{self.bucket_path}", params=params)
+            payload = response.json()
+            for item in payload.get("items", []):
+                out.append((item["name"], int(item.get("size", 0))))
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+        self.stats["lists"] += 1
+        return out
+
+    def get(self, key):
+        response = self._request("GET", self._object_url(key, download=True),
+                                 params={"alt": "media"}, allow_missing=True)
+        self.stats["reads"] += 1
+        if response is None:
+            return None
+        payload = response.content
+        self.stats["bytes_out"] += len(payload)
+        return payload
+
+    def put(self, key, data, content_type=None):
+        payload = bytes(data)
+        self._upload(key, payload, len(payload), content_type)
+        self.stats["writes"] += 1
+        self.stats["bytes_in"] += len(payload)
+
+    def _upload(self, key, source, size, content_type=None):
+        url = f"{self.upload_root}{self.bucket_path}"
+        params = {"uploadType": "media", "name": key}
+        self._request("POST", url, params=params, data=source,
+                      headers={"Content-Type": content_type or "application/octet-stream",
+                               "Content-Length": str(size)})
+
+    def pull_dir(self, prefix, dest):
+        dest = Path(dest)
+        root = prefix.rstrip("/")
+        count = 0
+        list_prefix = f"{root}/" if root else ""
+        for key, _ in self.ls(list_prefix):
+            rel = key[len(root) + 1:] if root else key
+            if not rel or rel.endswith("/"):
+                continue
+            safe = PurePosixPath(rel)
+            if safe.is_absolute() or ".." in safe.parts or "\\" in rel or ":" in rel:
+                raise ValueError("invalid object path")
+            target = dest.joinpath(*safe.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            response = self._request("GET", self._object_url(key, download=True),
+                                     params={"alt": "media"}, stream=True, allow_missing=True)
+            if response is None:
+                continue
+            try:
+                with target.open("wb") as output:
+                    if hasattr(response, "iter_content"):
+                        for block in response.iter_content(chunk_size=1024 * 1024):
+                            if block:
+                                output.write(block)
+                                self.stats["bytes_out"] += len(block)
+                    else:
+                        output.write(response.content)
+                        self.stats["bytes_out"] += len(response.content)
+            finally:
+                close = getattr(response, "close", None)
+                if close:
+                    close()
+            self.stats["reads"] += 1
+            count += 1
+        return count
+
+    def push_dir(self, src, prefix, only_changed=True):
+        src, prefix = Path(src), prefix.strip("/")
+        manifest_key = f"state/manifest/{prefix.replace('/', '_')}.json"
+        old = self.get_json(manifest_key, {}) if only_changed else {}
+        new, copied = {}, 0
+        for path in sorted(src.rglob("*")):
+            if not path.is_file():
+                continue
+            digest = hashlib.sha1()
+            with path.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+            rel = path.relative_to(src).as_posix()
+            hexdigest = digest.hexdigest()
+            new[rel] = hexdigest
+            if old.get(rel) == hexdigest:
+                continue
+            key = f"{prefix}/{rel}" if prefix else rel
+            size = path.stat().st_size
+            with path.open("rb") as source:
+                self._upload(key, source, size, _content_type(path))
+            self.stats["writes"] += 1
+            self.stats["bytes_in"] += size
+            copied += 1
+        if only_changed:
+            self.put_json(manifest_key, new)
+        return copied
+
+    def pack_put(self, key, src_dir):
+        with tempfile.TemporaryFile() as file:
+            with tarfile.open(fileobj=file, mode="w:gz") as archive:
+                for path in sorted(Path(src_dir).rglob("*")):
+                    if path.is_file():
+                        archive.add(path, arcname=path.relative_to(src_dir).as_posix(), recursive=False)
+            size = file.tell()
+            file.seek(0)
+            self._upload(key, file, size, "application/gzip")
+        self.stats["writes"] += 1
+        self.stats["bytes_in"] += size
+        return True
+
+    def delete(self, keys):
+        deleted = 0
+        for key in keys:
+            response = self._request("DELETE", self._object_url(key), allow_missing=True)
+            if response is not None:
+                deleted += 1
+        self.stats["deletes"] += deleted
+
+
 class KVRemote(Remote):
     backend, originals = "kv", False
 
@@ -384,6 +546,15 @@ def open_remote(env=os.environ):
         if not env.get("R2_BUCKET"):
             raise SystemExit("missing setting: R2_BUCKET")
         return R2Remote(env["R2_BUCKET"])
+    if backend == "firebase":
+        names = ("FIREBASE_STORAGE_BUCKET", "GOOGLE_APPLICATION_CREDENTIALS")
+        missing = [name for name in names if not env.get(name)]
+        if missing:
+            raise SystemExit("missing setting: " + ", ".join(missing))
+        credentials_file = Path(env["GOOGLE_APPLICATION_CREDENTIALS"])
+        if not credentials_file.is_file():
+            raise SystemExit("missing setting: GOOGLE_APPLICATION_CREDENTIALS file")
+        return FirebaseStorageRemote(env["FIREBASE_STORAGE_BUCKET"], credentials_file)
     if backend == "local":
         if not env.get("STORAGE_LOCAL_DIR"):
             raise SystemExit("missing setting: STORAGE_LOCAL_DIR")

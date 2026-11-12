@@ -5,14 +5,14 @@ import { resetJwksCache } from '../_shared/auth.js';
 import { onRequestPost, onRequestGet } from '../api/admin/scan.js';
 
 const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048}),jwk={...publicKey.export({format:'jwk'}),kid:'scan-test'};
-function fixture(upstream=()=>{throw new Error('unexpected fetch')}){resetJwksCache();globalThis.fetch=async(url,init)=>url.includes('googleapis.com/service_accounts/')?Response.json({keys:[jwk]}):upstream(url,init);const values=new Map(),env={FIREBASE_PROJECT_ID:'scan-test',ADMIN_EMAILS:'admin@example.com',PHOTOS:{async get(k){return values.has(k)?{body:new TextEncoder().encode(values.get(k))}:null},async put(k,v){values.set(k,String(v))},async list(){return{objects:[]}}}};function request(method='GET',body,role='admin'){const headers={};if(role!=='anonymous'){const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url'),input=`${enc({alg:'RS256',kid:jwk.kid})}.${enc({aud:env.FIREBASE_PROJECT_ID,iss:`https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,sub:role,email:role==='admin'?'admin@example.com':'rkmv1234@gmail.com',email_verified:true,exp:Math.floor(Date.now()/1000)+3600})}`;headers.authorization=`Bearer ${input}.${sign('RSA-SHA256',Buffer.from(input),privateKey).toString('base64url')}`;}return new Request('https://gallery.test/api/admin/scan',{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});}return{env,request};}
+function fixture(upstream=()=>{throw new Error('unexpected fetch')}){resetJwksCache();globalThis.fetch=async(url,init)=>url.includes('googleapis.com/service_accounts/')?Response.json({keys:[jwk]}):url.endsWith('/actions/variables/SCAN_HOLD')?new Response('{}',{status:404}):upstream(url,init);const values=new Map(),env={FIREBASE_PROJECT_ID:'scan-test',ADMIN_EMAILS:'admin@example.com',PHOTOS:{async get(k){return values.has(k)?{body:new TextEncoder().encode(values.get(k))}:null},async put(k,v){values.set(k,String(v))},async list(){return{objects:[]}}}};function request(method='GET',body,role='admin'){const headers={};if(role!=='anonymous'){const enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url'),input=`${enc({alg:'RS256',kid:jwk.kid})}.${enc({aud:env.FIREBASE_PROJECT_ID,iss:`https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,sub:role,email:role==='admin'?'admin@example.com':'rkmv1234@gmail.com',email_verified:true,exp:Math.floor(Date.now()/1000)+3600})}`;headers.authorization=`Bearer ${input}.${sign('RSA-SHA256',Buffer.from(input),privateKey).toString('base64url')}`;}return new Request('https://gallery.test/api/admin/scan',{method,headers,...(body===undefined?{}:{body:JSON.stringify(body)})});}return{env,request};}
 const noStore=response=>{assert.equal(response.headers.get('cache-control'),'no-store');return response;};
 
 test('scan dispatch sends exact URL, headers and string inputs', async () => {
   const calls = [];
   const { env, request } = fixture((url, init) => { calls.push({ url, ...init }); return new Response(null, { status: 204 }); });
   Object.assign(env, { GITHUB_REPO: 'owner/name', GITHUB_DISPATCH_TOKEN: 'fake-test-token' });
-  for (const body of [{ fetchFacebook: true, recluster: false, reembed: true, migrateFrom: 'kv' }, {}]) {
+  for (const body of [{ fetchFacebook: true, recluster: false, reembed: true, migrateFrom: 'kv' }, { migrateFrom: 'firebase' }, {}]) {
     assert.deepEqual(await noStore(await onRequestPost({ env, request: request('POST', body) })).json(), { ok: true });
     const call = calls.at(-1);
     assert.equal(call.url, 'https://api.github.com/repos/owner/name/actions/workflows/scan.yml/dispatches');
@@ -51,13 +51,26 @@ test('scan GET returns latest run fields or none', async () => {
     return Response.json({ workflow_runs: runs });
   });
   Object.assign(env, { GITHUB_REPO: 'owner/name', GITHUB_DISPATCH_TOKEN: 'fake-token' });
-  assert.deepEqual(await noStore(await onRequestGet({ env, request: request() })).json(), { none: true });
+  assert.deepEqual(await noStore(await onRequestGet({ env, request: request() })).json(), { none: true, scanHeld: false });
   runs = [{ status: 'completed', conclusion: 'success', created_at: '2026-01-01T00:00:00Z', html_url: 'https://github.com/owner/name/actions/runs/1', private: 'hidden' }];
-  assert.deepEqual(await noStore(await onRequestGet({ env, request: request() })).json(), { status: 'completed', conclusion: 'success', createdAt: runs[0].created_at, url: runs[0].html_url });
+  assert.deepEqual(await noStore(await onRequestGet({ env, request: request() })).json(), { status: 'completed', conclusion: 'success', createdAt: runs[0].created_at, url: runs[0].html_url, scanHeld: false });
 });
 test('scan validates request bodies before dispatch', async () => {
   const { env, request } = fixture();
   Object.assign(env, { GITHUB_REPO: 'owner/name', GITHUB_DISPATCH_TOKEN: 'fake-token' });
   for (const body of [null, [], { fetchFacebook: 'true' }, { recluster: 1 }]) assert.equal((await onRequestPost({ env, request: request('POST', body) })).status, 400);
   assert.equal((await onRequestPost({ env, request: request('POST') })).status, 400);
+});
+
+test('scan hold leaves uploads queued and rejects manual processing', async () => {
+  let dispatched = false;
+  const { env, request } = fixture((url) => {
+    if (url.endsWith('/actions/workflows/scan.yml/dispatches')) dispatched = true;
+    return new Response(null, { status: 204 });
+  });
+  Object.assign(env, { GITHUB_REPO: 'owner/name', GITHUB_DISPATCH_TOKEN: 'fake-token', SCAN_HOLD: true });
+  const response = noStore(await onRequestPost({ env, request: request('POST', {}) }));
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { ok: false, error: 'scan_paused_for_storage_migration' });
+  assert.equal(dispatched, false);
 });

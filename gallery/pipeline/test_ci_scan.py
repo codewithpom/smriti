@@ -74,6 +74,9 @@ class ScanTest(unittest.TestCase):
         with Image.open(self.new) as source:
             source.resize((40, 30)).save(self.root / "resized.jpg", "JPEG", quality=65)
         self.local.put(self.upload_keys[2], (self.root / "resized.jpg").read_bytes())
+        self.raw = raw
+        self.unreadable = b"\xff\xd8\xffnot-a-readable-jpeg"
+        self.local.put("pending/user-c/4-unreadable.jpg", self.unreadable)
         self.old_data, self.old_gallery, self.old_sorted, self.old_people = ci_scan.DATA, ci_scan.GALLERY, ci_scan.SRC, ci_scan.PEOPLE
         ci_scan.DATA, ci_scan.GALLERY, ci_scan.SRC, ci_scan.PEOPLE = self.data, self.gallery, self.sorted, self.people
         self.old_module_paths = (ci_scan.build.DATA, ci_scan.assets.GALLERY, ci_scan.assets.SRC,
@@ -109,6 +112,13 @@ class ScanTest(unittest.TestCase):
         self.assertEqual({row["state"] for row in statuses_a}, {"awaiting_approval", "duplicate"})
         self.assertEqual(statuses_b[0]["state"], "duplicate")
         self.assertTrue(statuses_a[1].get("dupOf"))
+        self.assertEqual(self.local.get_json("status/uploads/user-c.json")["items"][0]["state"], "unreadable")
+        exact_originals = [self.raw, (self.root / "published0.jpg").read_bytes(),
+                           (self.root / "resized.jpg").read_bytes(), self.unreadable]
+        for payload in exact_originals:
+            digest = hashlib.sha256(payload).hexdigest()
+            extension = ci_scan._raw_original_type(payload)[0]
+            self.assertEqual(self.local.get(f"originals/uploads/raw/{digest}.{extension}"), payload)
         catalog = self.local.get_json("state/catalog.json")
         self.assertEqual(sum(bool(e.get("pending")) for e in catalog), 1)
         self.assertEqual(len(self.local.get_json("data/photos.json")), 2)
@@ -147,7 +157,7 @@ class ScanTest(unittest.TestCase):
                     self.assertEqual(ci_scan.scan(args, self.local), 1)
                 pull.assert_not_called()
                 self.assertEqual(self.local.get_json("data/photos.json"), published)
-                self.assertEqual(len(self.local.ls("pending/")), 3)
+                self.assertEqual(len(self.local.ls("pending/")), 4)
                 self.assertFalse((self.root / "output").exists())
         self.local.put("state/catalog.json", original_catalog)
         self.assertEqual(ci_scan.scan(args, self.local), 0)
@@ -194,6 +204,22 @@ class ScanTest(unittest.TestCase):
         self.assertIn('id = "ns1"', (dest / "wrangler.toml").read_text())
         r2 = ci_scan.pages_config({**env, "STORAGE_BACKEND": "r2", "R2_BUCKET": "bucket"})
         self.assertIn('bucket_name = "bucket"', r2)
+        firebase_migration = ci_scan.pages_config({**env, "STORAGE_BACKEND": "firebase",
+                                                   "PHOTOS_BACKEND": "kv",
+                                                   "FIREBASE_STORAGE_BUCKET": "gallery.appspot.com"})
+        self.assertIn('id = "ns1"', firebase_migration)
+        self.assertIn('PHOTOS_BACKEND = "kv"', firebase_migration)
+        self.assertIn('FIREBASE_STORAGE_BUCKET = "gallery.appspot.com"', firebase_migration)
+        self.assertIn('SCAN_HOLD = "false"', firebase_migration)
+        firebase_runtime = ci_scan.pages_config({**env, "STORAGE_BACKEND": "firebase",
+                                                  "PHOTOS_BACKEND": "firebase",
+                                                  "FIREBASE_STORAGE_BUCKET": "gallery.appspot.com"})
+        self.assertIn('PHOTOS_BACKEND = "firebase"', firebase_runtime)
+        self.assertIn('FIREBASE_STORAGE_BUCKET = "gallery.appspot.com"', firebase_runtime)
+        self.assertNotIn("[[kv_namespaces]]", firebase_runtime)
+        self.assertNotIn("GOOGLE_SERVICE_ACCOUNT_JSON", firebase_runtime)
+        held = ci_scan.pages_config({**env, "SCAN_HOLD": "true"})
+        self.assertIn('SCAN_HOLD = "true"', held)
         with self.assertRaises(SystemExit):
             ci_scan.pages_config({**env, "STORAGE_BACKEND": "kv", "CF_KV_NAMESPACE_ID": 'x"\n[evil]'})
 
@@ -203,6 +229,18 @@ class ScanTest(unittest.TestCase):
         with patch.dict(os.environ, {"STORAGE_BACKEND": "", "GITHUB_EVENT_NAME": "workflow_dispatch"}):
             with self.assertRaises(SystemExit):
                 ci_scan.main([])
+
+    def test_scan_hold_skips_before_opening_any_backend(self):
+        with patch.dict(os.environ, {"SCAN_HOLD": "true", "STORAGE_BACKEND": "kv"}), \
+             patch.object(ci_scan, "open_remote", side_effect=AssertionError("backend must stay untouched")):
+            self.assertEqual(ci_scan.main([]), 0)
+
+    def test_scan_hold_allows_deploy_only_publish_without_running_scan(self):
+        with patch.dict(os.environ, {"SCAN_HOLD": "true", "STORAGE_BACKEND": "kv"}), \
+             patch.object(ci_scan, "open_remote", return_value=self.local), \
+             patch.object(ci_scan, "publish") as publish:
+            self.assertEqual(ci_scan.main(["--publish-dir", str(self.root / "site")]), 0)
+        publish.assert_called_once_with(self.local, str(self.root / "site"))
 
     def test_packed_recovery_images_and_portraits(self):
         baseline = self.root / "baseline"

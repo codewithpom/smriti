@@ -96,6 +96,17 @@ def _uploader(key):
     return key.split("/")[1] if key.count("/") >= 2 else ""
 
 
+def _raw_original_type(data):
+    """Return a safe extension and MIME type for an immutable source upload."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg", "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png", "image/png"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return "bin", "application/octet-stream"
+
+
 def _merge_corrections(remote):
     payload = remote.get("review/corrections.json")
     if payload is None:
@@ -227,20 +238,40 @@ def _copy_missing_images(remote, cache, dest):
 
 
 def pages_config(env):
-    """wrangler.toml for the real site, generated so PHOTOS always follows STORAGE_BACKEND.
+    """Build Pages config from PHOTOS_BACKEND, separate from pipeline STORAGE_BACKEND.
+
+    Explicit PHOTOS_BACKEND lets migration scans read/write Firebase while the API
+    stays on KV. Older direct callers without it retain the STORAGE_BACKEND choice.
     The repo's own wrangler.toml binds the public demo's KV and must never be used here."""
     safe = re.compile(r"^[A-Za-z0-9_./-]{1,128}$")
-    values = {name: env.get(name, "") for name in ("PAGES_PROJECT", "FIREBASE_PROJECT_ID", "GITHUB_REPOSITORY", "STORAGE_BACKEND")}
-    values["STORE"] = env.get("CF_KV_NAMESPACE_ID" if values["STORAGE_BACKEND"] == "kv" else "R2_BUCKET", "")
-    bad = [name for name, value in values.items() if not safe.match(value)]
+    values = {name: env.get(name, "") for name in ("PAGES_PROJECT", "FIREBASE_PROJECT_ID", "GITHUB_REPOSITORY")}
+    values["PHOTOS_BACKEND"] = env.get("PHOTOS_BACKEND") or env.get("STORAGE_BACKEND") or "kv"
+    values["SCAN_HOLD"] = env.get("SCAN_HOLD", "false").lower()
+    values["FIREBASE_STORAGE_BUCKET"] = env.get("FIREBASE_STORAGE_BUCKET", "")
+    if values["SCAN_HOLD"] not in ("true", "false"):
+        raise SystemExit("missing or invalid setting: SCAN_HOLD")
+    if values["PHOTOS_BACKEND"] not in ("kv", "r2", "firebase"):
+        raise SystemExit("missing or invalid setting: PHOTOS_BACKEND")
+    store_name = {"kv": "CF_KV_NAMESPACE_ID", "r2": "R2_BUCKET", "firebase": "FIREBASE_STORAGE_BUCKET"}[values["PHOTOS_BACKEND"]]
+    values["STORE"] = env.get(store_name, "")
+    if not values["STORE"]:
+        raise SystemExit("missing or invalid setting: " + store_name)
+    bad = [name for name, value in values.items() if value and not safe.match(value)]
+    bad.extend(name for name in ("PAGES_PROJECT", "FIREBASE_PROJECT_ID", "GITHUB_REPOSITORY", "STORE")
+               if not values[name])
     if bad:
         raise SystemExit("missing or invalid setting: " + ", ".join(bad))
     store = values["STORE"]
-    binding = (["[[kv_namespaces]]", 'binding = "PHOTOS"', f'id = "{store}"'] if values["STORAGE_BACKEND"] == "kv"
-               else ["[[r2_buckets]]", 'binding = "PHOTOS"', f'bucket_name = "{store}"'])
+    binding = (["[[kv_namespaces]]", 'binding = "PHOTOS"', f'id = "{store}"'] if values["PHOTOS_BACKEND"] == "kv"
+               else (["[[r2_buckets]]", 'binding = "PHOTOS"', f'bucket_name = "{store}"']
+                     if values["PHOTOS_BACKEND"] == "r2" else []))
     lines = [f'name = "{values["PAGES_PROJECT"]}"', 'compatibility_date = "2026-11-06"', 'pages_build_output_dir = "public"', "",
              *binding, "", "[vars]", f'FIREBASE_PROJECT_ID = "{values["FIREBASE_PROJECT_ID"]}"',
-             f'GITHUB_REPO = "{values["GITHUB_REPOSITORY"]}"']
+             f'GITHUB_REPO = "{values["GITHUB_REPOSITORY"]}"',
+             f'PHOTOS_BACKEND = "{values["PHOTOS_BACKEND"]}"',
+             f'SCAN_HOLD = "{values["SCAN_HOLD"]}"']
+    if values["FIREBASE_STORAGE_BUCKET"]:
+        lines.append(f'FIREBASE_STORAGE_BUCKET = "{values["FIREBASE_STORAGE_BUCKET"]}"')
     return "\n".join(lines) + "\n"
 
 
@@ -312,6 +343,11 @@ def scan(args, remote=None):
             if data is None:
                 continue
             digest = hashlib.sha256(data).hexdigest()
+            if supports_originals(remote):
+                extension, content_type = _raw_original_type(data)
+                # Archive the exact upload before decoding or normalization. This
+                # also preserves duplicates and files Pillow cannot read.
+                remote.put(f"originals/uploads/raw/{digest}.{extension}", data, content_type)
             filename = f"up-{digest[:16]}.jpg"
             try:
                 date = _normalise(data, uploads_dir / filename)
@@ -496,16 +532,26 @@ def main(argv=None):
     parser.add_argument("--recluster", action="store_true")
     parser.add_argument("--reembed", action="store_true")
     parser.add_argument("--eval", action="store_true")
-    parser.add_argument("--migrate-from", choices=("kv", "r2"))
+    parser.add_argument("--migrate-from", choices=("kv", "r2", "firebase"))
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--backfill-hashes")
     parser.add_argument("--publish-dir")
     args = parser.parse_args(argv)
-    if args.backfill_hashes:
-        return backfill_hashes(args.backfill_hashes)
+    # Publishing copies the current site and its stored assets. It does not
+    # scan or mutate storage, so it remains available for code deployments
+    # while processing is held during a storage migration.
     if args.publish_dir:
         publish(open_remote(), args.publish_dir)
         return 0
+    if os.environ.get("SCAN_HOLD", "").lower() in ("1", "true", "yes"):
+        _safe_print("scan skipped: storage migration hold is active")
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as file:
+                file.write("publish=false\n")
+        return 0
+    if args.backfill_hashes:
+        return backfill_hashes(args.backfill_hashes)
     if args.migrate_from:
         source_env = dict(os.environ, STORAGE_BACKEND=args.migrate_from)
         result = migrate(open_remote(source_env), open_remote())

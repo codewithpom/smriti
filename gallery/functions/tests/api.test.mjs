@@ -164,6 +164,19 @@ test('upload rejects a streamed body over 10 MB with 413', async () => {
   assert.equal(response.status, 413);
 });
 
+test('upload reports storage outages without exposing backend failures', async () => {
+  const form = new FormData();
+  form.set('file', new Blob([Uint8Array.from([0xff, 0xd8, 0xff, 1])], { type: 'image/jpeg' }), 'a.jpg');
+  for (const photos of [
+    { getWithMetadata() {}, async list() { throw new Error('private backend details'); } },
+    { getWithMetadata() {}, async list() { return { keys: [], list_complete: true }; }, async put() { throw new Error('private backend details'); } },
+  ]) {
+    const response = await postUpload({ request: request('/api/upload', { method: 'POST', body: form }), env: { ...ENV, PHOTOS: photos } });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { ok: false, error: 'storage_unavailable' });
+  }
+});
+
 test('admin routes list and preview pending uploads; decisions use markers', async () => {
   const bucket = r2();
   const key = `pending/student-1/${Date.now()}-abc123.jpg`;

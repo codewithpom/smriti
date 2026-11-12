@@ -62,15 +62,29 @@ export async function setVariable(env, name, value) {
   return !!response?.ok;
 }
 
+// GitHub's repository variable is the immediate hold control for scan.yml.
+// Pages can also supply SCAN_HOLD locally for development and staged deploys.
+export async function scanHold(env) {
+  if (env.SCAN_HOLD === true || String(env.SCAN_HOLD ?? '').toLowerCase() === 'true') return true;
+  return (await getVariable(env, 'SCAN_HOLD'))?.toLowerCase() === 'true';
+}
+
 // Record "queued" so the upload page can show it before the runner starts.
-export async function markQueued(env) {
+export async function markQueued(env, { heldForMigration = false } = {}) {
   const store = storage(env);
   const previous = await getJson(store, 'status/scan.json', {});
-  await putJson(store, 'status/scan.json', { ...previous, state: 'queued', queuedAt: new Date().toISOString() });
+  const next = { ...previous, state: 'queued', queuedAt: new Date().toISOString() };
+  if (heldForMigration) next.holdReason = 'storage_migration';
+  else delete next.holdReason;
+  await putJson(store, 'status/scan.json', next);
 }
 
 // Debounced dispatch used after uploads and reviews: 'queued' | 'already_queued' | 'dispatch_failed' | 'not_configured'.
 export async function requestScan(env, inputs = {}) {
+  if (await scanHold(env)) {
+    await markQueued(env, { heldForMigration: true });
+    return 'held';
+  }
   if (!config(env)) return 'not_configured';
   const previous = await getJson(storage(env), 'status/scan.json', null);
   const queuedAt = Date.parse(previous?.queuedAt);

@@ -3,6 +3,7 @@
 //   get(key) -> {body, httpMetadata, size} | null,  put(key, body, {httpMetadata}),
 //   list({prefix, cursor}) -> {objects:[{key,size}], truncated, cursor},  delete(key)
 // KV limits to know: 25 MiB per value, ~1,000 writes/day on the free plan, eventually consistent (~60 s).
+import { firebaseStorage } from './gcs.js';
 
 // JSON helpers. R2 returns a stream body and KV an ArrayBuffer: Response reads both.
 export async function getJson(store, key, fallback = null) {
@@ -30,6 +31,9 @@ export async function listAll(store, prefix) {
 }
 
 export function storage(env) {
+  // The runtime route is separate from the Actions migration target. Leave
+  // PHOTOS_BACKEND unset/kv until the initial copy and delta sync are complete.
+  if (env.PHOTOS_BACKEND === 'firebase') return firebaseStorage(env);
   const ns = env.PHOTOS;
   if (!ns) throw new Error('storage_not_bound');
   if (typeof ns.getWithMetadata !== 'function') return ns; // R2 bucket: already the shape we want
