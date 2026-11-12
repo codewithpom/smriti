@@ -112,6 +112,16 @@ class MigrateStorageTest(unittest.TestCase):
         self.assertTrue(manifest["stable"])
         self.assertEqual(set(manifest["owned_keys"]), set(values))
 
+    def test_empty_destination_is_not_probed_once_per_source_object(self):
+        self.source.put("data/one.json", b"one")
+        self.source.put("data/two.json", b"two")
+        reads = []
+        original_get = self.destination.get
+        self.destination.get = lambda key: (reads.append(key), original_get(key))[1]
+        self.run_migration(phase="initial")
+        self.assertEqual(reads.count("data/one.json"), 1)  # read-after-write verification only
+        self.assertEqual(reads.count("data/two.json"), 1)
+
     def test_resume_after_partial_destination_write_uses_journal(self):
         source = self.source
         source.put("data/first.json", b"first")

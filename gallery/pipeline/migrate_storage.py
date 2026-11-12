@@ -166,6 +166,10 @@ def _copy_pass(source, destination, manifest: dict, checkpoint: int) -> dict:
     rows = {}
     writes = skipped = verified = read_misses = size_changes = bytes_written = 0
     changed_keys = []
+    # Ownership validation already proves that every non-journaled destination
+    # object is absent. Avoid an extra remote 404 request per source key on the
+    # first copy; read destination objects only when resuming owned data.
+    owned_before = set(manifest["owned_keys"]) | set(manifest["inflight_put"])
     with tempfile.TemporaryDirectory(prefix="smriti-kv-firebase-") as spool_dir:
         spool = Path(spool_dir)
         for key in sorted(listed):
@@ -178,7 +182,7 @@ def _copy_pass(source, destination, manifest: dict, checkpoint: int) -> dict:
                 size_changes += 1
             digest = _sha256(data)
             rows[key] = {"size": len(data), "sha256": digest, "content_type": _content_type(key)}
-            current = destination.get(key)
+            current = destination.get(key) if key in owned_before else None
             if current is not None and len(current) == len(data) and _sha256(current) == digest:
                 skipped += 1
                 verified += 1
