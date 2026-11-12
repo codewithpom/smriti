@@ -480,10 +480,168 @@ def restore_face_layout(data_dir, deployed_photos, model_tag="r50f", min_iou=0.9
     matrix = np.asarray(rebuilt_vectors, dtype=np.float32).reshape(-1, dim)
     np.save(emb_path, matrix)
     raw_path.write_text(json.dumps(rebuilt_rows, separators=(",", ":")), encoding="utf-8")
-    label_counts = save_transferred_labels(data_dir, deployed_photos, rebuilt_rows, min_iou=0.999)
-    return {"archived_faces": archived_faces, "missing_embeddings": missing_embeddings,
+    repair_counts = repair_cached_embeddings(data_dir, deployed_photos, model_tag=model_tag)
+    return {"archived_faces": archived_faces,
+            "missing_embeddings": repair_counts["remaining_missing_embeddings"],
             "cache_matched_faces": cache_preserved, "new_detections": added_detections,
-            **label_counts}
+            **repair_counts}
+
+
+def repair_cached_embeddings(data_dir, deployed_photos, model_tag="r50f", min_iou=0.75,
+                              min_margin=0.05, min_det=0.60):
+    """Recover historical embeddings from unused, high-confidence cached detections.
+
+    This is data-only: it never opens an image or calls a detector. It expects
+    ``restore_face_layout`` output, where the first N raw rows for each photo
+    correspond to its N deployed faces and remaining rows are unmatched new
+    detections. Only a mutual, unambiguous match above the relaxed IoU floor is
+    promoted. Historical order and boxes remain exact; consumed extras are
+    removed, embedding indices are rebuilt, and each cache is regenerated from
+    the resulting raw rows so a later cached ``faces.extract`` stays aligned.
+    """
+    import numpy as np
+
+    data_dir = Path(data_dir)
+    raw_path, emb_path = data_dir / "faces_raw.json", data_dir / "face_emb.npy"
+    if not raw_path.is_file() or not emb_path.is_file():
+        raise ValueError("recovery embeddings are missing")
+    raw_rows = _load_json(raw_path)
+    embeddings = np.load(emb_path, allow_pickle=False)
+    if embeddings.ndim != 2 or not np.isfinite(embeddings).all():
+        raise ValueError("recovery embeddings are invalid")
+    dim = embeddings.shape[1]
+    raw_by_photo = {row["photo"]: row.get("faces", []) for row in raw_rows}
+    if len(raw_by_photo) != len(raw_rows):
+        raise ValueError("duplicate recovery photo rows")
+    catalog = _load_json(data_dir / "catalog.json") if (data_dir / "catalog.json").exists() else []
+    catalog_by_id = {entry["id"]: entry for entry in catalog}
+    cache_dir = data_dir / "fx" / model_tag
+
+    # Reject a corrupt source layout before rewriting any files.
+    refs = [int(face["e"]) for row in raw_rows for face in row.get("faces", [])]
+    if len(refs) != len(set(refs)) or any(index < 0 or index >= len(embeddings) for index in refs):
+        raise ValueError("recovery embedding indices are invalid")
+
+    rebuilt_rows, rebuilt_vectors, cache_outputs = [], [], {}
+    repaired = remaining = removed_extras = archived_faces = 0
+    for photo in deployed_photos:
+        pid = photo["id"]
+        old_faces = photo.get("faces", [])
+        source_faces = raw_by_photo.get(pid)
+        if source_faces is None or len(source_faces) < len(old_faces):
+            raise ValueError("recovery historical face layout is incomplete")
+        for old_i, old in enumerate(old_faces):
+            if source_faces[old_i].get("bbox") != old.get("bbox"):
+                raise ValueError("recovery historical face layout changed")
+        cache_path = cache_dir / f"{pid}.json"
+        cache_rows = _load_json(cache_path) if cache_path.is_file() else []
+        cache_wh = next(((int(row["w"]), int(row["h"])) for row in cache_rows
+                         if row.get("w") and row.get("h")), None)
+        catalog_row = catalog_by_id.get(pid, {})
+        width, height = cache_wh or (
+            int(catalog_row.get("width") or photo.get("w") or 1),
+            int(catalog_row.get("height") or photo.get("h") or 1),
+        )
+        if width < 1 or height < 1:
+            raise ValueError("recovery cache dimensions are invalid")
+
+        missing_indices = [i for i, face in enumerate(source_faces[:len(old_faces)])
+                           if face.get("embedding_missing")]
+        candidates = [(j, face) for j, face in enumerate(source_faces[len(old_faces):], start=len(old_faces))
+                      if not face.get("embedding_missing") and float(face.get("det", 0.0)) >= min_det]
+        pairs = _unique_bbox_pairs(
+            [old_faces[i] for i in missing_indices],
+            [face.get("bbox", []) for _, face in candidates],
+            min_iou=min_iou,
+            min_margin=min_margin,
+        )
+        # _unique_bbox_pairs already rejects both ambiguous old faces and
+        # detections claimed by more than one old face.
+        match_by_old = {missing_indices[old_local]: candidates[candidate_local_i][0]
+                        for old_local, candidate_local_i in pairs.items()}
+        consumed = set(match_by_old.values())
+
+        new_faces, row_vectors = [], []
+        for old_i, old in enumerate(old_faces):
+            archived_faces += 1
+            candidate_i = match_by_old.get(old_i)
+            if candidate_i is not None:
+                face = dict(source_faces[candidate_i])
+                face["bbox"] = list(old["bbox"])
+                face.pop("embedding_missing", None)
+                source_e = int(face["e"])
+                vector = embeddings[source_e]
+                if float(np.linalg.norm(vector)) <= 1e-12:
+                    raise ValueError("candidate recovery embedding is empty")
+                repaired += 1
+            else:
+                face = dict(source_faces[old_i])
+                face["bbox"] = list(old["bbox"])
+                source_e = int(face["e"])
+                if face.get("embedding_missing"):
+                    vector = np.zeros(dim, dtype=np.float32)
+                    face["q"] = 0.0
+                    face["det"] = 0.0
+                    remaining += 1
+                else:
+                    vector = embeddings[source_e]
+            face["e"] = len(rebuilt_vectors)
+            rebuilt_vectors.append(np.asarray(vector, dtype=np.float32))
+            row_vectors.append(rebuilt_vectors[-1])
+            new_faces.append(face)
+
+        for source_i in range(len(old_faces), len(source_faces)):
+            if source_i in consumed:
+                removed_extras += 1
+                continue
+            face = dict(source_faces[source_i])
+            source_e = int(face["e"])
+            vector = embeddings[source_e]
+            face["e"] = len(rebuilt_vectors)
+            rebuilt_vectors.append(np.asarray(vector, dtype=np.float32))
+            row_vectors.append(rebuilt_vectors[-1])
+            new_faces.append(face)
+
+        rebuilt_rows.append({"photo": pid, "faces": new_faces})
+        # Synthesize the reusable cache from this exact raw layout. Keypoints
+        # are not read by cached extraction; embeddings and boxes are preserved.
+        cache_outputs[cache_path] = [
+            {
+                "b": [float(face["bbox"][0]) * width, float(face["bbox"][1]) * height,
+                      (float(face["bbox"][0]) + float(face["bbox"][2])) * width,
+                      (float(face["bbox"][1]) + float(face["bbox"][3])) * height],
+                "k": [[0.0, 0.0]] * 5,
+                "w": width,
+                "h": height,
+                "d": float(face.get("det", 0.0)),
+                "q": float(face.get("q", 0.0)),
+                "v": vector.astype(float).tolist(),
+                **({"embedding_missing": True} if face.get("embedding_missing") else {}),
+            }
+            for face, vector in zip(new_faces, row_vectors)
+        ]
+
+    if set(raw_by_photo) != {photo["id"] for photo in deployed_photos}:
+        raise ValueError("recovery photo rows do not match deployed catalog")
+    matrix = np.asarray(rebuilt_vectors, dtype=np.float32).reshape(-1, dim)
+    if not np.isfinite(matrix).all():
+        raise ValueError("rebuilt embeddings are invalid")
+
+    raw_path.write_text(json.dumps(rebuilt_rows, separators=(",", ":")), encoding="utf-8")
+    np.save(emb_path, matrix)
+    for cache_path, rows in cache_outputs.items():
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+    label_counts = save_transferred_labels(data_dir, deployed_photos, rebuilt_rows, min_iou=0.999)
+    if label_counts["unmatched_labels"]:
+        raise ValueError("cached repair could not preserve historical labels")
+    return {
+        "repaired_embeddings": repaired,
+        "remaining_missing_embeddings": remaining,
+        "removed_extra_detections": removed_extras,
+        "archived_faces": archived_faces,
+        **label_counts,
+    }
 
 
 def transfer_confirmed_labels(deployed_photos, raw_faces, min_iou=0.90):
