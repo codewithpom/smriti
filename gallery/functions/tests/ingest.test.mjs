@@ -14,7 +14,7 @@ const BASE = { FIREBASE_PROJECT_ID: PROJECT, ADMIN_EMAILS: 'admin@example.com' }
 const GH = { GITHUB_DISPATCH_TOKEN: 'test-token', GITHUB_REPO: 'owner/repo' };
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'test-key', alg: 'RS256', use: 'sig' };
-let objects, github, statusByUid, realFetch;
+let objects, github, statusByUid, firebaseManifest, realFetch;
 
 const b64 = (value) => Buffer.from(value).toString('base64url');
 function jwt(uid) {
@@ -47,6 +47,8 @@ function kv() {
 function fakeFetch() {
   return async (url, init = {}) => {
     if (url.startsWith('https://www.googleapis.com/')) return Response.json({ keys: [jwk] }, { headers: { 'cache-control': 'max-age=3600' } });
+    if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'firebase-test-token', expires_in: 3600 });
+    if (url.startsWith('https://storage.googleapis.com/storage/v1/')) return firebaseManifest ? Response.json(firebaseManifest) : new Response('{}', { status: 404 });
     if (url.startsWith('https://firestore.googleapis.com/')) {
       const uid = decodeURIComponent(url.split('/').pop());
       const status = statusByUid.get(uid);
@@ -64,6 +66,7 @@ describe('auto-ingest endpoints', () => {
     globalThis.fetch = fakeFetch();
     resetJwksCache();
     objects = new Map();
+    firebaseManifest = null;
     statusByUid = new Map([['student-1', 'approved'], ['student-2', 'approved'], ['pending', 'pending'], ['admin', 'approved']]);
     github = { calls: [], reply: () => new Response(null, { status: 204 }) };
   });
@@ -88,10 +91,10 @@ describe('auto-ingest endpoints', () => {
     assert.equal(await requestScan({ PHOTOS: r2() }), 'not_configured');
     objects.set('status/scan.json', new TextEncoder().encode(JSON.stringify({ state: 'queued', queuedAt: new Date().toISOString() })));
     assert.equal(await requestScan(env), 'already_queued');
-    assert.equal(github.calls.length, 0);
+    assert.equal(github.calls.filter((call) => call.url.endsWith('/actions/workflows/scan.yml/dispatches')).length, 0);
     objects.set('status/scan.json', new TextEncoder().encode(JSON.stringify({ state: 'running', stage: 'faces' })));
     assert.equal(await requestScan(env), 'queued');
-    assert.match(github.calls[0].url, /actions\/workflows\/scan\.yml\/dispatches$/);
+    assert.equal(github.calls.filter((call) => call.url.endsWith('/actions/workflows/scan.yml/dispatches')).length, 1);
     const status = await getJson((await import('../_shared/store.js')).storage(env), 'status/scan.json');
     assert.equal(status.state, 'queued');
     assert.equal(status.stage, 'faces');
@@ -99,6 +102,18 @@ describe('auto-ingest endpoints', () => {
     objects.set('status/scan.json', new TextEncoder().encode(JSON.stringify({ state: 'done' })));
     assert.equal(await requestScan(env), 'dispatch_failed');
     assert.equal((await getJson((await import('../_shared/store.js')).storage(env), 'status/scan.json')).state, 'done');
+  });
+
+  test('storage scan hold keeps uploads queued without dispatching a workflow', async () => {
+    const env = { ...GH, PHOTOS: r2(), SCAN_HOLD: true };
+    objects.set('pending/student-1/123-a.jpg', new Uint8Array([1]));
+    assert.equal(await requestScan(env), 'held');
+    assert.ok(objects.has('pending/student-1/123-a.jpg'));
+    assert.equal(github.calls.length, 0);
+    const held = await getJson((await import('../_shared/store.js')).storage(env), 'status/scan.json');
+    assert.equal(held.state, 'queued');
+    assert.equal(held.holdReason, 'storage_migration');
+    assert.ok(Date.parse(held.queuedAt));
   });
 
   test('mine merges processed items with queued raw uploads and hides other users', async () => {
@@ -134,13 +149,53 @@ describe('auto-ingest endpoints', () => {
     assert.equal((await storageGet({ request: call('/api/admin/storage'), env })).status, 403);
   });
 
+  test('Firebase Storage can be selected for migration while the live KV route stays active', async () => {
+    github.reply = () => new Response(null, { status: 204 });
+    const baseEnv = {
+      ...BASE, ...GH, PHOTOS: kv(),
+      FIREBASE_STORAGE_BUCKET: 'smriti-private-test.appspot.com',
+      GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+        client_email: 'worker-test@example.iam.gserviceaccount.com',
+        private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      }),
+    };
+    const env = { ...baseEnv, SCAN_HOLD: 'true' };
+    const current = await (await storageGet({ request: call('/api/admin/storage', { as: 'admin' }), env })).json();
+    assert.deepEqual([current.binding, current.firebaseConfigured, current.firebaseReady], ['kv', true, false]);
+    const post = (targetEnv) => storagePost({
+      request: call('/api/admin/storage', { as: 'admin', method: 'POST', body: { backend: 'firebase' } }), env: targetEnv,
+    });
+    assert.equal((await post(env)).status, 409, 'credentials alone do not establish data readiness');
+    const stale = { version: 1, phase: 'delta', status: 'syncing', stable: false };
+    firebaseManifest = stale;
+    assert.equal((await post(env)).status, 409, 'unverified migration state is rejected');
+    const verified = { version: 1, phase: 'delta', status: 'stable', stable: true,
+      source_id: 'a'.repeat(64), destination_id: 'smriti-private-test.appspot.com', inventory_sha256: 'b'.repeat(64),
+      last_counts: { read_misses: 0, size_changes: 0, listed_changed: false } };
+    firebaseManifest = verified;
+    assert.equal((await post({ ...baseEnv, SCAN_HOLD: 'false' })).status, 409, 'verified readiness still requires scans to be held');
+    assert.equal((await post({ ...env, FIREBASE_STORAGE_BUCKET: 'other.appspot.com' })).status, 409, 'a manifest for another bucket cannot authorize selection');
+    const set = await (await storagePost({
+      request: call('/api/admin/storage', { as: 'admin', method: 'POST', body: { backend: 'firebase' } }), env,
+    })).json();
+    assert.deepEqual(set, { ok: true, setting: 'firebase', binding: 'kv', mismatch: true });
+    assert.equal(env.PHOTOS_BACKEND, undefined, 'migration selection does not switch live uploads off KV');
+    assert.equal(github.calls.at(-1).method, 'PATCH');
+
+    const missingSecret = { ...env, GOOGLE_SERVICE_ACCOUNT_JSON: undefined };
+    assert.equal((await post(missingSecret)).status, 501);
+
+    const liveFirebase = { ...baseEnv, PHOTOS: undefined, PHOTOS_BACKEND: 'firebase', SCAN_HOLD: false };
+    assert.equal((await post(liveFirebase)).status, 200, 'already-active Firebase remains valid after hold release');
+  });
+
   test('corrections are validated, stored for the pipeline and trigger a scan', async () => {
     const env = { ...BASE, ...GH, PHOTOS: r2() };
     const ok = await sendCorrections({ request: call('/api/admin/corrections', { as: 'admin', method: 'POST', body: { faces: { 'p00000001:0': 'S1' }, scenes: {} } }), env });
     assert.equal(ok.status, 200);
     const stored = JSON.parse(new TextDecoder().decode(objects.get('review/corrections.json')));
     assert.deepEqual(stored, { faces: { 'p00000001:0': 'S1' }, scenes: {}, skipped: [], history: [] });
-    assert.equal(github.calls.length, 1);
+    assert.equal(github.calls.filter((call) => call.url.endsWith('/actions/workflows/scan.yml/dispatches')).length, 1);
     assert.equal((await sendCorrections({ request: call('/api/admin/corrections', { as: 'admin', method: 'POST', body: { faces: { a: 1 }, scenes: {} } }), env })).status, 400);
     assert.equal((await sendCorrections({ request: call('/api/admin/corrections', { method: 'POST', body: { faces: {}, scenes: {} } }), env })).status, 403);
   });

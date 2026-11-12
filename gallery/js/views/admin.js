@@ -59,6 +59,7 @@ export function mount(root, ctx) {
     return `${Math.floor(minutes / 1440)}d ago`;
   };
   const scanLine = (scan) => {
+    if (scan?.holdReason === 'storage_migration') return 'Scans are paused for storage migration; uploads remain queued.';
     if (scan?.state === 'queued') return 'Processing will start shortly';
     if (scan?.state === 'running') return `Processing: ${scan.stage || 'working'} (step ${scan.step || 1} of ${scan.steps || 1})`;
     if (scan?.state === 'done') return `Last processed ${relative(scan.finishedAt || scan.updatedAt || scan.createdAt)}`;
@@ -201,7 +202,8 @@ export function mount(root, ctx) {
       try {
         await api('scan', { method: 'POST', body: JSON.stringify({ fetchFacebook: fetchFb.checked, recluster: recluster.checked, reembed: reembed.checked }) });
         await render(); status.textContent = 'Scan started. It takes a while; refresh this tab to see progress.';
-      } catch (e) { status.textContent = e.message === 'not_configured' ? 'Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO first.' : e.message; }
+      } catch (e) { status.textContent = e.message === 'not_configured' ? 'Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO first.'
+        : e.message === 'scan_paused_for_storage_migration' ? 'Scans are paused while storage is being migrated. Uploads remain queued.' : e.message; }
     });
     const last = run.none ? 'No runs yet.' : run.error ? 'Run status unavailable.' : `Latest run: ${run.status}${run.conclusion ? ` (${run.conclusion})` : ''}${run.createdAt ? `, ${new Date(run.createdAt).toLocaleString()}` : ''}.`;
     const open = 'New faces that match nobody appear in Review as groups. Name a group once and every face in it is labelled.';
@@ -211,7 +213,7 @@ export function mount(root, ctx) {
       el('h2', { text: 'Photo scan' }), el('p', { class: 'muted small', text: 'Runs on GitHub Actions: downloads new photos, finds faces, groups unknown faces into unnamed people, rebuilds the data.' }),
       el('label', { class: 'check' }, fetchFb, ' Fetch new Facebook photos first'),
       el('label', { class: 'check' }, recluster, ' Re-group unnamed faces from scratch'),
-      el('label', { class: 'check' }, reembed, ' Re-run face recognition on every photo (needs R2, slow)'),
+      el('label', { class: 'check' }, reembed, ' Re-run face recognition on every photo (needs R2 or Firebase Storage, slow)'),
       el('div', { class: 'rv-actions' }, go), el('p', { class: 'muted', text: last }),
       el('h2', { text: 'Unnamed people' }), el('p', { class: 'muted small', text: open }),
       el('a', { class: 'btn', href: '#/review' }, 'Name people in Review'));
@@ -221,34 +223,43 @@ export function mount(root, ctx) {
     const backend = data.setting || data.binding || 'kv';
     const selected = el('input', { type: 'radio', name: 'storage', value: 'kv', checked: backend === 'kv' });
     const r2 = el('input', { type: 'radio', name: 'storage', value: 'r2', checked: backend === 'r2' });
+    const firebaseReady = data.firebaseReady === true;
+    const firebase = el('input', { type: 'radio', name: 'storage', value: 'firebase', checked: backend === 'firebase', disabled: !firebaseReady });
     const choices = el('fieldset', { class: 'storage-options' }, el('legend', { text: 'Storage' }),
       el('label', {}, selected, ' Workers KV: free, no card needed, 1 GB, about 1,000 writes a day, no original files kept'),
-      el('label', {}, r2, ' R2: free up to 10 GB, needs a card on file, keeps original files'));
+      el('label', {}, r2, ' R2: free up to 10 GB, needs a card on file, keeps original files'),
+      el('label', {}, firebase, firebaseReady
+        ? ' Firebase Storage: verified copy ready; selection changes the scanner target only'
+        : ' Firebase Storage: available after a verified copy while scans are held'));
     const usage = data.usage || {};
     const note = el('p', { class: 'muted small', text: `${usage.keys ?? 0} keys \u00b7 ${(Number(usage.bytes || 0) / 1024 / 1024).toFixed(1)} MB` });
-    const warning = data.setting && data.setting !== data.binding
-      ? el('p', { class: 'pill', text: `Website is still connected to ${data.binding}` }) : null;
+    const warning = data.scanHeld
+      ? el('p', { class: 'pill', text: data.setting && data.setting !== data.binding
+        ? `Scans are paused. Scanner target is ${data.setting}; live uploads are accepted on ${data.binding} and queued.`
+        : `Scans are paused for storage migration. Uploads are accepted on ${data.binding || 'the current store'} and queued.` })
+      : data.setting && data.setting !== data.binding
+        ? el('p', { class: 'pill', text: `Scanner targets ${data.setting}; live uploads still use ${data.binding}.` }) : null;
     const next = el('div', { class: 'storage-next' });
     const switchButton = button('Switch storage', async () => {
       const target = choices.querySelector('input:checked')?.value;
       if (!target || target === backend) { status.textContent = 'Choose a different storage backend first.'; return; }
       try {
         await api('storage', { method: 'POST', body: JSON.stringify({ backend: target }) });
-        const old = backend;
-        next.replaceChildren(el('ol', {},
-          el('li', { text: `In Cloudflare Pages settings, bind the ${target.toUpperCase()} store as PHOTOS.` }),
-          el('li', { text: target === 'r2' ? 'In GitHub, add R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET secrets.' : 'In GitHub, add the CF_KV_NAMESPACE_ID secret.' }),
-          el('li', {}, button('Copy data now', async () => {
-            try {
-              await api('scan', { method: 'POST', body: JSON.stringify({ migrateFrom: old }) });
-              status.textContent = 'Data copy started.';
-            } catch (error) {
-              status.textContent = error.message === 'not_configured' ? 'Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO first.' : error.message;
-            }
-          }, 'btn btn-primary'))));
-        status.textContent = 'Storage setting updated. Complete these steps in order.';
-      } catch (error) { status.textContent = error.message === 'not_configured' ? 'Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO first.' : error.message; }
+        if (target === 'firebase') {
+          next.replaceChildren(el('p', { class: 'muted small', text: 'The verified migration is ready. This changes the scanner target, not the live upload route. Keep SCAN_HOLD enabled until the final delta and Pages cutover are complete.' }));
+        } else {
+          next.replaceChildren(el('p', { class: 'muted small', text: `The scanner target is now ${target.toUpperCase()}; the live upload route is still ${data.binding}. Complete the approved migration and cutover steps before changing the Pages binding.` }));
+        }
+        status.textContent = 'Scanner storage setting updated.';
+      } catch (error) {
+        status.textContent = error.message === 'not_configured' ? 'Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO first.'
+          : error.message === 'migration_not_ready' ? 'A verified Firebase copy is required before selecting this target.'
+            : error.message === 'scan_hold_required' ? 'Pause scans before selecting Firebase.'
+              : error.message === 'storage_not_configured' ? 'Configure the private Firebase bucket and service-account secret first.'
+                : error.message;
+      }
     }, 'btn btn-primary');
+    switchButton.disabled = !data.configured;
     body.append(choices, note, warning, switchButton, next);
   }
   async function stats() {

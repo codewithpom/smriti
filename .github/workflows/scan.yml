@@ -8,10 +8,11 @@ on:
     inputs:
       fetch_facebook: { description: "Fetch saved Facebook page", type: boolean, default: false }
       recluster: { description: "Recluster unknown faces", type: boolean, default: false }
-      reembed: { description: "Re-embed originals (R2 only)", type: boolean, default: false }
+      reembed: { description: "Re-embed originals (R2 or Firebase Storage)", type: boolean, default: false }
       eval: { description: "Run match evaluation", type: boolean, default: false }
-      migrate_from: { description: "Migrate from a backend", type: choice, options: ["", kv, r2], default: "" }
+      migrate_from: { description: "Migrate from a backend", type: choice, options: ["", kv, r2, firebase], default: "" }
       verbose: { description: "Print pipeline stdout", type: boolean, default: false }
+      deploy_only: { description: "Deploy site and Functions without scanning", type: boolean, default: false }
   schedule:
     - cron: "17 3 * * *"
 
@@ -81,15 +82,18 @@ jobs:
           PY
 
   scan:
-    if: ${{ github.ref == 'refs/heads/automation/scan' }}
+    if: ${{ github.ref == 'refs/heads/automation/scan' && (vars.SCAN_HOLD != 'true' || inputs.deploy_only) }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
       STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || 'kv' }}
+      SCAN_HOLD: ${{ vars.SCAN_HOLD || 'false' }}
+      PHOTOS_BACKEND: ${{ vars.PHOTOS_BACKEND || vars.STORAGE_BACKEND || 'kv' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
       RCLONE_CONFIG_R2_TYPE: s3
       RCLONE_CONFIG_R2_PROVIDER: Cloudflare
       RCLONE_CONFIG_R2_REGION: auto
@@ -121,11 +125,41 @@ jobs:
       - name: Install rclone
         if: ${{ env.STORAGE_BACKEND == 'r2' || inputs.migrate_from == 'r2' }}
         run: sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+      - name: Materialize Google service account credentials
+        if: ${{ env.STORAGE_BACKEND == 'firebase' || inputs.migrate_from == 'firebase' }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+          if not raw:
+              raise SystemExit("missing setting: GOOGLE_SERVICE_ACCOUNT_JSON")
+          try:
+              parsed = json.loads(raw)
+          except json.JSONDecodeError:
+              raise SystemExit("invalid setting: GOOGLE_SERVICE_ACCOUNT_JSON") from None
+          if not isinstance(parsed, dict) or parsed.get("type") != "service_account":
+              raise SystemExit("invalid setting: GOOGLE_SERVICE_ACCOUNT_JSON")
+          path = Path(os.environ["RUNNER_TEMP"]) / "google-storage-service-account.json"
+          fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, "w", encoding="utf-8") as output:
+              json.dump(parsed, output)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"GOOGLE_APPLICATION_CREDENTIALS={path}\n")
+          PY
       - name: Install pipeline dependencies
         run: python -m pip install -r gallery/pipeline/requirements-scan.txt
       - name: Run incremental scan
         id: scan
         run: |
+          if [ "${{ inputs.deploy_only }}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           args=()
           [ "${{ inputs.fetch_facebook }}" = "true" ] && args+=(--fetch-facebook)
           [ "${{ inputs.recluster }}" = "true" ] && args+=(--recluster)

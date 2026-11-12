@@ -9,3 +9,4 @@ Pillow==10.4.0
 networkx==3.3
 gallery-dl==1.32.19
 scikit-learn==1.5.2
+google-auth[requests]==2.62.2
